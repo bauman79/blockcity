@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 
 // ═══ CONSTANTS ═══════════════════════════════════════════════
-const MAP_W = 36, MAP_H = 24;
+const MAP_W = 48, MAP_H = 32;
 const T = {
   EMPTY:0, ROAD_H:1, ROAD_V:2, ROAD_X:3,
   T_N:4, T_S:5, T_E:6, T_W:7,
@@ -19,9 +19,11 @@ const adjRoad = (g,r,c) =>
 
 // ═══ RESPONSIVE TILE SIZE ════════════════════════════════════
 const calcTS = (w, h) => {
-  const byW = w<480?34:w<768?38:w<1200?42:46;
-  const maxH = (h * 0.68) / MAP_H;
-  return Math.max(28, Math.min(byW, Math.floor(maxH)));
+  // 가로 기준
+  const byW = w<400?22:w<600?26:w<900?30:w<1400?34:38;
+  // 세로 기준: 지도가 화면 세로 75% 이내
+  const byH = Math.floor((h * 0.75) / MAP_H);
+  return Math.max(18, Math.min(byW, byH));
 };
 
 // ═══ QUESTION BANK (형식: [질문, [보기1~4], 정답idx, '문맥문장']) ════
@@ -1158,7 +1160,7 @@ const CATS=[
 ];
 
 // ═══ SAVE / LOAD ════════════════════════════════════════════
-const SAVE_KEY = 'blockcity_v1';
+const SAVE_KEY = 'blockcity_v2';
 
 const loadSave = () => {
   try {
@@ -1289,10 +1291,15 @@ export default function BlockCity(){
   };
 
   const popupTx = (type, icon, label, amount) => {
+    const nid = `tx_${Date.now()}`;
     if(type==='cost')
-      pushNotif('warn', `${icon} ${label}`, `💸 $${amount} 지출되었습니다. 잔액: $${balR.current - amount}`, `tx_${Date.now()}`);
+      pushNotif('warn', `${icon} ${label}`, `💸 $${amount} 지출 · 잔액 $${balR.current - amount}`, nid);
     else if(type==='earn')
-      pushNotif('good', `${icon} ${label}`, `💰 $${amount} 수익이 발생했습니다! 잔액: $${balR.current + amount}`, `tx_${Date.now()}`);
+      pushNotif('good', `${icon} ${label}`, `💰 +$${amount} 수익 · 잔액 $${balR.current + amount}`, nid);
+    // 2초 후 자동 소멸
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== nid));
+    }, 2000);
   };
 
   const BREV = {
@@ -2128,7 +2135,9 @@ export default function BlockCity(){
     }
   };
 
-  const [showNewGame, setShowNewGame] = useState(false);
+  const [showNewGame,  setShowNewGame]  = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false); // 로그인/회원가입 패널
+  const [showRanking,  setShowRanking]  = useState(false); // 순위 패널
   const newGame = () => {
     try { localStorage.removeItem(SAVE_KEY); } catch(e){}
     setBalance(0); setLoan(0); setDeposit(0);
@@ -2228,13 +2237,43 @@ export default function BlockCity(){
     <div style={{...FF,background:'#1e2235',height:'100dvh',display:'flex',flexDirection:'column',overflow:'hidden',maxWidth:'100vw',boxSizing:'border-box'}}>
 
       {/* ── 상단 수치바 ── */}
-      <div style={{background:'#151929',borderBottom:'1px solid rgba(255,255,255,.07)',flexShrink:0,display:'flex',overflowX:'auto',WebkitOverflowScrolling:'touch',scrollbarWidth:'none'}}>
-        {stats.map(s=>(
-          <div key={s.l} style={{padding:'5px 10px',textAlign:'center',flexShrink:0,borderRight:'1px solid rgba(255,255,255,.06)'}}>
-            <div style={{fontSize:'8px',color:'rgba(255,255,255,.45)',fontWeight:700,lineHeight:1.2,whiteSpace:'nowrap'}}>{s.l}</div>
-            <div style={{fontSize:'13px',color:s.c,fontWeight:900,lineHeight:1.2,whiteSpace:'nowrap'}}>{s.v}</div>
-          </div>
-        ))}
+      <div style={{background:'#151929',borderBottom:'1px solid rgba(255,255,255,.07)',flexShrink:0,display:'flex',alignItems:'center',overflowX:'auto',WebkitOverflowScrolling:'touch',scrollbarWidth:'none'}}>
+        {/* 수치들 */}
+        <div style={{display:'flex',flex:1,overflowX:'auto',scrollbarWidth:'none'}}>
+          {stats.map(s=>(
+            <div key={s.l} style={{padding:'5px 10px',textAlign:'center',flexShrink:0,borderRight:'1px solid rgba(255,255,255,.06)'}}>
+              <div style={{fontSize:'8px',color:'rgba(255,255,255,.45)',fontWeight:700,lineHeight:1.2,whiteSpace:'nowrap'}}>{s.l}</div>
+              <div style={{fontSize:'13px',color:s.c,fontWeight:900,lineHeight:1.2,whiteSpace:'nowrap'}}>{s.v}</div>
+            </div>
+          ))}
+        </div>
+        {/* 우상단: 순위 + 유저 */}
+        <div style={{display:'flex',alignItems:'center',gap:'2px',padding:'0 6px',flexShrink:0,borderLeft:'1px solid rgba(255,255,255,.08)'}}>
+          {/* 순위 버튼 */}
+          <button onClick={()=>{SFX.click();setShowRanking(r=>!r);setShowUserMenu(false);}} style={{
+            background:'transparent',border:'none',cursor:'pointer',
+            padding:'4px 8px',borderRadius:'8px',
+            display:'flex',flexDirection:'column',alignItems:'center',gap:'1px',
+            transition:'background .15s',
+          }}
+          onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,.08)'}
+          onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            <span style={{fontSize:'16px',lineHeight:1}}>🏆</span>
+            <span style={{fontSize:'8px',color:'rgba(255,255,255,.45)',fontWeight:700,lineHeight:1}}>순위</span>
+          </button>
+          {/* 유저 버튼 */}
+          <button onClick={()=>{SFX.click();setShowUserMenu(u=>!u);setShowRanking(false);}} style={{
+            background:'transparent',border:'none',cursor:'pointer',
+            padding:'4px 8px',borderRadius:'8px',
+            display:'flex',flexDirection:'column',alignItems:'center',gap:'1px',
+            transition:'background .15s',
+          }}
+          onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,.08)'}
+          onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+            <span style={{fontSize:'16px',lineHeight:1}}>👤</span>
+            <span style={{fontSize:'8px',color:'rgba(255,255,255,.45)',fontWeight:700,lineHeight:1}}>로그인</span>
+          </button>
+        </div>
       </div>
 
       {/* ── 메인 영역: 사이드바 + 지도 ── */}
@@ -2971,6 +3010,100 @@ export default function BlockCity(){
       })()}
 
       {/* 새 게임 확인 모달 */}
+      {/* 👤 로그인/회원가입 패널 */}
+      {showUserMenu && (
+        <div style={{position:'fixed',inset:0,zIndex:5500,display:'flex',alignItems:'flex-start',justifyContent:'flex-end'}}
+          onClick={()=>setShowUserMenu(false)}>
+          <div style={{background:'#1e2235',border:'1px solid rgba(255,255,255,.12)',borderRadius:'16px',
+            marginTop:'42px',marginRight:'8px',width:'280px',overflow:'hidden',
+            boxShadow:'0 12px 40px rgba(0,0,0,.5)'}}
+            onClick={e=>e.stopPropagation()}>
+            <div style={{background:'linear-gradient(135deg,#6366f1,#4f46e5)',padding:'20px',textAlign:'center'}}>
+              <div style={{fontSize:'42px',marginBottom:'6px'}}>👤</div>
+              <div style={{color:'white',fontWeight:800,fontSize:'15px'}}>BlockCity 계정</div>
+              <div style={{color:'rgba(255,255,255,.7)',fontSize:'11px',marginTop:'3px'}}>로그인하면 기록이 저장됩니다</div>
+            </div>
+            <div style={{padding:'16px',display:'flex',flexDirection:'column',gap:'8px'}}>
+              <button onClick={()=>setShowUserMenu(false)} style={{
+                width:'100%',padding:'12px',borderRadius:'12px',border:'none',
+                background:'#6366f1',color:'white',fontWeight:800,fontSize:'14px',cursor:'pointer',
+                boxShadow:'0 3px 10px rgba(99,102,241,.4)'}}>
+                🔑 로그인
+              </button>
+              <button onClick={()=>setShowUserMenu(false)} style={{
+                width:'100%',padding:'12px',borderRadius:'12px',
+                border:'2px solid #6366f1',background:'transparent',
+                color:'#818cf8',fontWeight:700,fontSize:'14px',cursor:'pointer'}}>
+                ✏️ 회원가입
+              </button>
+              <div style={{borderTop:'1px solid rgba(255,255,255,.08)',marginTop:'4px',paddingTop:'12px',
+                textAlign:'center',fontSize:'11px',color:'rgba(255,255,255,.3)'}}>
+                소셜 로그인은 준비 중입니다
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🏆 순위 패널 */}
+      {showRanking && (()=>{
+        const acc2 = score.total>0?Math.round(score.correct/score.total*100):0;
+        const cs   = calcCityScore(population, cityStats.sat, acc2, monthIncome);
+        const cl   = getCityLevel(cs);
+        // 임시 더미 순위 (실제 서비스 시 API 연동)
+        const dummyRank = [
+          {rank:1, name:'도시왕',     score:1820, level:'🌇 메가시티'},
+          {rank:2, name:'건축가',     score:1340, level:'🌆 광역시'},
+          {rank:3, name:'도시개발자', score: 980, level:'🏙 도시'},
+          {rank:4, name:'나의 도시',  score: cs,  level:`${cl.icon} ${cl.name}`, isMe:true},
+          {rank:5, name:'초보건설자', score: 220, level:'🏘 읍내'},
+        ].sort((a,b)=>b.score-a.score).map((r,i)=>({...r,rank:i+1}));
+        return (
+          <div style={{position:'fixed',inset:0,zIndex:5500,display:'flex',alignItems:'flex-start',justifyContent:'flex-end'}}
+            onClick={()=>setShowRanking(false)}>
+            <div style={{background:'#1e2235',border:'1px solid rgba(255,255,255,.12)',borderRadius:'16px',
+              marginTop:'42px',marginRight:'8px',width:'300px',overflow:'hidden',
+              boxShadow:'0 12px 40px rgba(0,0,0,.5)'}}
+              onClick={e=>e.stopPropagation()}>
+              <div style={{background:'linear-gradient(135deg,#f59e0b,#d97706)',padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <div style={{color:'white',fontWeight:900,fontSize:'16px'}}>🏆 도시 순위</div>
+                  <div style={{color:'rgba(255,255,255,.8)',fontSize:'11px',marginTop:'2px'}}>종합 점수 기준 (준비 중)</div>
+                </div>
+                <button onClick={()=>setShowRanking(false)} style={{background:'rgba(255,255,255,.2)',border:'none',borderRadius:'50%',width:'26px',height:'26px',color:'white',fontSize:'14px',cursor:'pointer',fontWeight:900}}>✕</button>
+              </div>
+              <div style={{padding:'10px'}}>
+                {dummyRank.map(r=>(
+                  <div key={r.rank} style={{
+                    display:'flex',alignItems:'center',gap:'10px',
+                    padding:'10px 12px',borderRadius:'12px',marginBottom:'4px',
+                    background:r.isMe?'rgba(245,158,11,.15)':r.rank<=3?'rgba(255,255,255,.04)':'transparent',
+                    border:r.isMe?'1px solid rgba(245,158,11,.4)':'1px solid transparent',
+                  }}>
+                    <div style={{width:'24px',textAlign:'center',fontSize:r.rank<=3?'18px':'13px',fontWeight:900,
+                      color:r.rank===1?'#fbbf24':r.rank===2?'#94a3b8':r.rank===3?'#c97c2e':'rgba(255,255,255,.4)',flexShrink:0}}>
+                      {r.rank===1?'🥇':r.rank===2?'🥈':r.rank===3?'🥉':r.rank}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:'13px',fontWeight:700,color:r.isMe?'#fbbf24':'rgba(255,255,255,.85)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                        {r.name}{r.isMe&&' (나)'}
+                      </div>
+                      <div style={{fontSize:'10px',color:'rgba(255,255,255,.4)',marginTop:'1px'}}>{r.level}</div>
+                    </div>
+                    <div style={{fontSize:'13px',fontWeight:800,color:r.isMe?'#fbbf24':'rgba(255,255,255,.6)',flexShrink:0}}>
+                      {r.score.toLocaleString()}점
+                    </div>
+                  </div>
+                ))}
+                <div style={{textAlign:'center',padding:'10px 0 6px',fontSize:'10px',color:'rgba(255,255,255,.2)'}}>
+                  * 로그인 후 실제 순위가 표시됩니다
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showNewGame && (
         <div style={{position:'fixed',inset:0,background:'rgba(15,23,42,.6)',display:'flex',
           alignItems:'center',justifyContent:'center',zIndex:5000,padding:'16px',backdropFilter:'blur(4px)'}}
