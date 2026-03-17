@@ -2066,16 +2066,11 @@ export default function BlockCity(){
       });return;
     }
     if(tool==='road'){
-      if(inv.road<=0){flash('⚠ 도로 재고 없음 — +5 구매하세요');return;}
-      if(lastKey===key&&isRoad(cur)){
-        const nt=roadRot==='H'?T.ROAD_V:T.ROAD_H;
-        setRoadRot(v=>v==='H'?'V':'H');
-        setGrid(prev=>{const ng=prev.map(row_=>[...row_]);ng[r][c]=nt;return updateRoads(ng);});
-        flash('🛣 도로 회전');return;
-      }
+      if(inv.road<=0){flash('⚠ 도로 재고 없음 — 사이드바에서 구매하세요');return;}
       if(isWater||isMtn){flash('⚠ 하천/산에는 불가');return;}
       if(cur!==T.EMPTY){flash('⚠ 이미 타일이 있습니다');return;}
-      setGrid(prev=>{const ng=prev.map(row_=>[...row_]);ng[r][c]=roadRot==='H'?T.ROAD_H:T.ROAD_V;return updateRoads(ng);});
+      // updateRoads가 인접 타일 기반으로 자동 회전 결정
+      setGrid(prev=>{const ng=prev.map(row_=>[...row_]);ng[r][c]=T.ROAD_H;return updateRoads(ng);});
       setInv(v=>({...v,road:v.road-1}));setBalance(b=>b+50);
       SFX.road(); setLastKey(key);
       setRecentTile(key); setTimeout(()=>setRecentTile(null),600);
@@ -2230,412 +2225,319 @@ export default function BlockCity(){
   ];
 
   return(
-    <div style={{...FF,background:'#f0f4f8',height:'100dvh',display:'flex',flexDirection:'column',overflow:'hidden',maxWidth:'100vw',boxSizing:'border-box'}}>
+    <div style={{...FF,background:'#1e2235',height:'100dvh',display:'flex',flexDirection:'column',overflow:'hidden',maxWidth:'100vw',boxSizing:'border-box'}}>
 
-      {/* TOP BAR — 2행 구조 */}
-      <div style={{background:'white',borderBottom:'2px solid #e2e8f0',flexShrink:0,
-        boxShadow:'0 2px 8px rgba(0,0,0,.06)'}}>
-
-        {/* ── 1행: 로고 + 등급 | 액션 버튼 ── */}
-        <div style={{padding:isMob?'7px 10px':'8px 14px',display:'flex',alignItems:'center',
-          justifyContent:'space-between',gap:'8px'}}>
-
-          {/* 왼쪽: 로고 + 도시 등급 */}
-          <div style={{display:'flex',alignItems:'center',gap:'8px',minWidth:0}}>
-            <div style={{fontWeight:900,fontSize:isMob?'20px':'24px',letterSpacing:'-1px',flexShrink:0}}>
-              <span style={{color:'#6366f1'}}>Block</span><span style={{color:'#f97316'}}>City</span>
-            </div>
-            {/* 도시 등급 뱃지 + 진행바 */}
-            {(()=>{
-              const acc2 = score.total>0?Math.round(score.correct/score.total*100):0;
-              const cs   = calcCityScore(population, cityStats.sat, acc2, monthIncome);
-              const cl   = getCityLevel(cs);
-              const nl   = getNextLevel(cs);
-              const pct  = nl ? Math.round((cs-cl.minScore)/(nl.minScore-cl.minScore)*100) : 100;
-              return (
-                <div style={{display:'flex',alignItems:'center',gap:'5px',minWidth:0}}
-                  title={`도시 점수 ${cs}점${nl?` · 다음 등급까지 ${nl.minScore-cs}점`:' (최고 등급)'}`}>
-                  <div style={{background:cl.color+'22',border:`1.5px solid ${cl.color}77`,
-                    borderRadius:'99px',padding:'3px 10px',display:'flex',alignItems:'center',gap:'4px',
-                    flexShrink:0}}>
-                    <span style={{fontSize:'14px'}}>{cl.icon}</span>
-                    <span style={{fontSize:'12px',fontWeight:800,color:cl.color,whiteSpace:'nowrap'}}>{cl.name}</span>
-                  </div>
-                  {nl&&!isMob&&(
-                    <div style={{width:'50px',height:'6px',background:'#e2e8f0',
-                      borderRadius:'99px',overflow:'hidden',flexShrink:0}}>
-                      <div style={{height:'100%',borderRadius:'99px',
-                        background:`linear-gradient(90deg,${cl.color},${nl.color})`,
-                        width:`${pct}%`,transition:'width .5s'}}/>
-                    </div>
-                  )}
-                  {/* 저장 뱃지 */}
-                  {!isMob&&(
-                    <div style={{fontSize:'9px',color:'#94a3b8',whiteSpace:'nowrap',flexShrink:0}}>
-                      💾 {month}월
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+      {/* ── 상단 수치바 ── */}
+      <div style={{background:'#151929',borderBottom:'1px solid rgba(255,255,255,.07)',flexShrink:0,display:'flex',overflowX:'auto',WebkitOverflowScrolling:'touch',scrollbarWidth:'none'}}>
+        {stats.map(s=>(
+          <div key={s.l} style={{padding:'5px 10px',textAlign:'center',flexShrink:0,borderRight:'1px solid rgba(255,255,255,.06)'}}>
+            <div style={{fontSize:'8px',color:'rgba(255,255,255,.45)',fontWeight:700,lineHeight:1.2,whiteSpace:'nowrap'}}>{s.l}</div>
+            <div style={{fontSize:'13px',color:s.c,fontWeight:900,lineHeight:1.2,whiteSpace:'nowrap'}}>{s.v}</div>
           </div>
+        ))}
+      </div>
 
-          {/* 오른쪽: 액션 버튼 그룹 */}
-          <div style={{display:'flex',alignItems:'center',gap:'6px',flexShrink:0}}>
+      {/* ── 메인 영역: 사이드바 + 지도 ── */}
+      <div style={{flex:1,display:'flex',minHeight:0,overflow:'hidden',position:'relative'}}>
 
-            {/* ⏭ 다음 달 */}
-            <button onClick={advanceMonth} style={{
-              background:'linear-gradient(135deg,#16a34a,#15803d)',color:'white',
-              border:'none',borderRadius:'12px',
-              padding:'9px 16px',fontWeight:800,fontSize:'14px',
-              cursor:'pointer',whiteSpace:'nowrap',
-              boxShadow:'0 3px 10px rgba(22,163,74,.4)',
-              display:'flex',alignItems:'center',gap:'5px',
-            }}>
-              <span style={{fontSize:'15px'}}>⏭</span>
-              <span>다음 달</span>
-            </button>
+        {/* ── 좌측 사이드바 ── */}
+        <div style={{width:'60px',background:'#151929',borderRight:'1px solid rgba(255,255,255,.07)',display:'flex',flexDirection:'column',flexShrink:0,zIndex:200,alignItems:'center',paddingTop:'6px',paddingBottom:'6px',gap:'2px'}}>
 
-            {/* 🏦 은행 */}
-            <button onClick={()=>setPanel(p=>p==='bank'?null:'bank')} style={{
-              background:panel==='bank'?'#6366f1':'white',
-              color:panel==='bank'?'white':'#6366f1',
-              border:'2px solid #6366f1',borderRadius:'12px',
-              padding:'9px 14px',fontWeight:700,fontSize:'13px',
-              cursor:'pointer',whiteSpace:'nowrap',
-              display:'flex',alignItems:'center',gap:'5px',
-            }}>
-              <span style={{fontSize:'15px'}}>🏦</span>
-              <span>은행</span>
-            </button>
-
-            {/* 📚 학습 */}
-            <button onClick={()=>setShowVocab(true)} style={{
-              background:showVocab?'#7c3aed':'white',
-              color:showVocab?'white':'#7c3aed',
-              border:'2px solid #7c3aed',borderRadius:'12px',
-              padding:'9px 14px',fontWeight:700,fontSize:'13px',
-              cursor:'pointer',whiteSpace:'nowrap',
-              display:'flex',alignItems:'center',gap:'5px',
-            }}>
-              <span style={{fontSize:'15px'}}>📚</span>
-              <span>학습</span>
-            </button>
-
-            {/* 🔊 음악 */}
-            <button onClick={toggleBGM} style={{
-              background:bgmOn?'#fef9c3':'white',
-              color:bgmOn?'#b45309':'#94a3b8',
-              border:`2px solid ${bgmOn?'#fde047':'#e2e8f0'}`,
-              borderRadius:'12px',padding:'9px 14px',
-              fontWeight:700,fontSize:'13px',cursor:'pointer',
-              display:'flex',alignItems:'center',gap:'5px',
-              whiteSpace:'nowrap',
-            }}>
-              <span style={{fontSize:'15px'}}>{bgmOn?'🔊':'🔇'}</span>
-              <span>음악</span>
-            </button>
-
-            {/* 볼륨 슬라이더 */}
-            {bgmOn&&!isMob&&(
-              <input type="range" min="0" max="0.18" step="0.01"
-                value={bgmVol} onChange={e=>changeBGMVol(+e.target.value)}
-                style={{width:'52px',accentColor:'#f59e0b'}} title="볼륨"/>
-            )}
-
-            {/* 🔄 새 게임 */}
-            <button onClick={()=>setShowNewGame(true)} style={{
-              background:'white',color:'#94a3b8',
-              border:'2px solid #e2e8f0',borderRadius:'12px',
-              padding:'9px 14px',fontWeight:700,fontSize:'13px',
-              cursor:'pointer',whiteSpace:'nowrap',
-              display:'flex',alignItems:'center',gap:'5px',
-            }}>
-              <span style={{fontSize:'15px'}}>🔄</span>
-              <span>새 게임</span>
-            </button>
-
-            {/* ✕ 취소 — 도구 선택 중에만 */}
-            {tool&&(
-              <button onClick={()=>setTool(null)} style={{
-                background:'#fef2f2',color:'#dc2626',
-                border:'2px solid #fca5a5',borderRadius:'12px',
-                padding:'9px 14px',fontWeight:700,fontSize:'13px',
-                cursor:'pointer',whiteSpace:'nowrap',
-                display:'flex',alignItems:'center',gap:'5px',
+          {/* 카테고리 버튼 */}
+          {[
+            {id:'bank',   icon:'🏦', label:'은행',    color:'#6366f1'},
+            {id:'infra',  icon:'🛣', label:'도로',    color:'#6366f1'},
+            {id:'public', icon:'🏛', label:'공공',    color:'#10b981'},
+            {id:'estate', icon:'🏗', label:'건설',    color:'#f97316'},
+          ].map(sc=>{
+            const active = panel===sc.id;
+            return (
+              <button key={sc.id} onClick={()=>{SFX.click();setPanel(p=>p===sc.id?null:sc.id);}} style={{
+                width:'50px',padding:'8px 4px',borderRadius:'12px',border:'none',cursor:'pointer',
+                background:active?sc.color:'rgba(255,255,255,.06)',
+                display:'flex',flexDirection:'column',alignItems:'center',gap:'2px',
+                transition:'all .15s',
+                boxShadow:active?`0 2px 10px ${sc.color}55`:'none',
               }}>
-                <span style={{fontSize:'15px'}}>✕</span>
-                <span>취소</span>
+                <span style={{fontSize:'20px',lineHeight:1}}>{sc.icon}</span>
+                <span style={{fontSize:'9px',fontWeight:700,color:active?'white':'rgba(255,255,255,.5)',lineHeight:1}}>{sc.label}</span>
               </button>
-            )}
-          </div>
-        </div>
-
-        {/* ── 2행: 통계 수치 (가로 스크롤) ── */}
-        <div style={{
-          display:'flex',gap:'5px',
-          padding:isMob?'0 10px 7px':'0 14px 8px',
-          overflowX:'auto',WebkitOverflowScrolling:'touch',
-          scrollbarWidth:'none',
-        }}>
-          {stats.map(s=>(
-            <div key={s.l} style={{
-              background:s.bg,borderRadius:'10px',
-              padding:'4px 10px',textAlign:'center',
-              flexShrink:0,minWidth:'54px',
-            }}>
-              <div style={{fontSize:'9px',color:s.c,fontWeight:700,opacity:.7,lineHeight:1.3,whiteSpace:'nowrap'}}>{s.l}</div>
-              <div style={{fontSize:isMob?'12px':'14px',color:s.c,fontWeight:900,lineHeight:1.2,whiteSpace:'nowrap'}}>{s.v}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* BANK PANEL */}
-      {panel==='bank'&&(
-        <div style={{background:'#f8faff',borderBottom:'2px solid #e0e7ff',padding:'8px 12px',display:'flex',gap:'8px',flexWrap:'wrap',flexShrink:0,alignItems:'center'}}>
-          <div style={{background:'white',borderRadius:'12px',border:'2px solid #e0e7ff',padding:'8px 12px',display:'flex',gap:'7px',alignItems:'center',flexWrap:'wrap'}}>
-            <span style={{fontSize:'12px',fontWeight:800,color:'#6366f1'}}>📋 대출</span>
-            <span style={{fontSize:'10px',color:'#94a3b8'}}>{loanToday}/{LOAN_DAY}회</span>
-            <input type="range" min="100" max={Math.min(LOAN_PER,Math.max(100,LOAN_TOTAL-borrowed))} step="100" value={loanAmt} onChange={e=>setLoanAmt(+e.target.value)} style={{width:'60px',accentColor:'#6366f1'}}/>
-            <span style={{fontSize:'13px',fontWeight:800,color:'#6366f1'}}>${loanAmt}</span>
-            <button onClick={takeLoan} disabled={loanToday>=LOAN_DAY||borrowed>=LOAN_TOTAL} style={{background:'#6366f1',color:'white',border:'none',borderRadius:'8px',padding:'5px 12px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>대출</button>
-            {loan>0&&<>
-              <button onClick={repay} style={{background:'#fef2f2',color:'#dc2626',border:'2px solid #fca5a5',borderRadius:'8px',padding:'5px 10px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>상환</button>
-              <button onClick={repayAll} style={{background:'#dc2626',color:'white',border:'none',borderRadius:'8px',padding:'5px 10px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>전액</button>
-            </>}
-          </div>
-          <div style={{background:'white',borderRadius:'12px',border:'2px solid #fef3c7',padding:'8px 12px',display:'flex',gap:'7px',alignItems:'center',flexWrap:'wrap'}}>
-            <span style={{fontSize:'12px',fontWeight:800,color:'#d97706'}}>💰 예금</span>
-            <span style={{fontSize:'10px',color:'#94a3b8'}}>분당 +1% | ${deposit}</span>
-            <input type="range" min="10" max={Math.max(10,balance)} step="10" value={Math.min(depAmt,Math.max(10,balance))} onChange={e=>setDepAmt(+e.target.value)} style={{width:'60px',accentColor:'#d97706'}}/>
-            <button onClick={doDeposit} disabled={balance<10} style={{background:'#d97706',color:'white',border:'none',borderRadius:'8px',padding:'5px 12px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>예금</button>
-            {deposit>0&&<button onClick={doWithdraw} style={{background:'#fffbeb',color:'#d97706',border:'2px solid #fde68a',borderRadius:'8px',padding:'5px 10px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>인출</button>}
-          </div>
-        </div>
-      )}
-
-      {/* 미션 패널 */}
-      {currentMission && (
-        <div style={{background:'#fefce8',borderBottom:'2px solid #fde047',padding:isMob?'7px 10px':'8px 14px',flexShrink:0}}>
-          <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'5px'}}>
-            {/* 아이콘 + 제목 */}
-            <span style={{fontSize:isMob?'18px':'20px',flexShrink:0}}>{currentMission.icon}</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
-                <span style={{fontSize:isMob?'13px':'15px',color:'#78350f',fontWeight:900,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-                  {currentMission.title}
-                </span>
-                <span style={{fontSize:'10px',color:'#92400e',background:'#fef3c7',border:'1px solid #fde68a',borderRadius:'99px',padding:'1px 7px',fontWeight:700,flexShrink:0,whiteSpace:'nowrap'}}>
-                  {missionIdx+1}/{MISSIONS.length}
-                </span>
-              </div>
-              <div style={{fontSize:isMob?'10px':'11px',color:'#92400e',marginTop:'1px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                {currentMission.desc}
-              </div>
-            </div>
-            {/* 보상 + 힌트 */}
-            <div style={{flexShrink:0,display:'flex',alignItems:'center',gap:'5px'}}>
-              <span style={{fontSize:isMob?'11px':'12px',color:'#d97706',fontWeight:800,background:'#fef3c7',borderRadius:'8px',padding:'2px 8px',border:'1px solid #fde68a'}}>
-                +${currentMission.reward}
-              </span>
-              <button
-                onClick={()=>flash(`💡 힌트: ${currentMission.hint}`)}
-                style={{background:'#fef3c7',border:'1px solid #fde68a',borderRadius:'8px',padding:'4px 8px',fontSize:isMob?'13px':'14px',cursor:'pointer'}}>
-                💡
-              </button>
-            </div>
-          </div>
-          {/* 블록 진행 표시 */}
-          <div style={{display:'flex',gap:'3px',alignItems:'center'}}>
-            {Array.from({length:missionProgress.max}).map((_,i)=>(
-              <div key={i} style={{
-                flex:1, height:isMob?'8px':'10px',
-                borderRadius:'4px',
-                background: i < missionProgress.cur
-                  ? 'linear-gradient(90deg,#f59e0b,#d97706)'
-                  : '#fef9c3',
-                border: i < missionProgress.cur
-                  ? '1px solid #d97706'
-                  : '1px solid #fde047',
-                transition:'background .3s ease',
-              }}/>
-            ))}
-            <span style={{fontSize:'10px',color:'#92400e',fontWeight:700,flexShrink:0,marginLeft:'4px',minWidth:'32px',textAlign:'right'}}>
-              {missionProgress.cur<missionProgress.max
-                ? `${missionProgress.cur}/${missionProgress.max}`
-                : '✓ 완료'}
-            </span>
-          </div>
-        </div>
-      )}
-      {!currentMission && missionIdx>=MISSIONS.length && (
-        <div style={{background:'linear-gradient(90deg,#f0fdf4,#ecfdf5)',borderBottom:'2px solid #86efac',padding:'6px 12px',flexShrink:0,textAlign:'center'}}>
-          <span style={{fontSize:'13px',color:'#15803d',fontWeight:800}}>🎊 모든 미션 완료! 당신은 훌륭한 도시 설계자입니다!</span>
-        </div>
-      )}
-
-      {/* MSG */}
-      <div style={{background:'#f8fafc',borderBottom:'1px solid #e2e8f0',padding:'4px 12px',fontSize:'11px',color:'#475569',fontWeight:600,flexShrink:0,display:'flex',alignItems:'center',gap:'6px',minHeight:'26px'}}>
-        <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{msg}</span>
-        {activeTool&&<span style={{background:activeTool.color+'18',color:activeTool.color,padding:'1px 8px',borderRadius:'20px',fontWeight:700,fontSize:'11px',whiteSpace:'nowrap',flexShrink:0}}>
-          {activeTool.icon} {activeTool.label}{tool==='road'?` (${roadRot==='H'?'가로':'세로'})`:tool==='bridge'?` (${bridgeRot==='H'?'가로':'세로'})`:''}
-        </span>}
-      </div>
-
-      {/* MAP */}
-      <div ref={viewRef} style={{flex:1,overflow:'hidden',position:'relative',cursor:'grab',touchAction:'none',userSelect:'none',minHeight:0}}
-        onPointerDown={onPD} onPointerMove={onPM} onPointerUp={onPU} onPointerLeave={onPU}>
-        <div style={{position:'absolute',transform:`translate(${offset.x}px,${offset.y}px)`,width:mapW,height:mapH,willChange:'transform'}}>
-          <canvas ref={canvasRef} width={mapW} height={mapH} style={{position:'absolute',top:0,left:0,pointerEvents:'none'}}/>
-          {grid.map((row,ri)=>row.map((cell,ci)=>{
-            const key=`${ri},${ci}`;
-            return(
-              <div key={key} style={{
-                position:'absolute',left:ci*ts,top:ri*ts,width:ts,height:ts,
-                pointerEvents:'none',overflow:'hidden',
-                animation: recentTile===key ? 'tilePopIn 0.55s cubic-bezier(.34,1.56,.64,1) forwards' : 'none',
-              }}>
-                <TileArt type={cell} size={ts} land={!!landMap[key]} building={bldgMap[key]||B.NONE}/>
-                {/* 등급 뱃지 */}
-                {(bldgMap[key]||[T.POLICE,T.COMMUNITY,T.CARE].includes(cell))&&bldgGrade[key]&&bldgGrade[key].grade!=='C'&&(
-                  <div style={{position:'absolute',top:1,right:1,background:bldgGrade[key].grade==='A'?'#f59e0b':'#6366f1',borderRadius:'50%',width:ts*.28,height:ts*.28,display:'flex',alignItems:'center',justifyContent:'center',fontSize:ts*.18,zIndex:10,boxShadow:'0 1px 4px rgba(0,0,0,.3)',pointerEvents:'none'}}>
-                    {bldgGrade[key].grade==='A'?'🌟':'⭐'}
-                  </div>
-                )}
-              </div>
-            );
-          }))}
-        </div>
-        <div style={{position:'absolute',bottom:8,right:10,background:'rgba(255,255,255,.82)',borderRadius:'8px',padding:'2px 8px',fontSize:'10px',color:'#94a3b8',fontWeight:600,backdropFilter:'blur(4px)',pointerEvents:'none'}}>
-          {MAP_W}×{MAP_H} | 드래그 이동
-        </div>
-      </div>
-
-      {/* 도시 현황 바 (항상 표시) */}
-      {(()=>{
-        const preview  = calcIncome(grid, bldgMap, bldgGrade, monthBonus);
-        const interest = Math.round(loan * 0.02);
-        const hasBldg  = Object.keys(bldgMap).length > 0;
-        return (
-          <div style={{background: cityStats.sat<50&&population>0?'#fef2f2':'#f0fdf4', borderTop:`1px solid ${cityStats.sat<50&&population>0?'#fca5a5':'#bbf7d0'}`, padding:'5px 10px', display:'flex', alignItems:'center', gap:'8px', flexShrink:0, flexWrap:'wrap'}}>
-            {/* 인구 */}
-            <div style={{display:'flex',alignItems:'center',gap:'4px',background:'#f0f9ff',borderRadius:'8px',padding:'3px 8px'}}>
-              <span style={{fontSize:'11px'}}>👥</span>
-              <span style={{fontSize:'12px',color:'#0ea5e9',fontWeight:800}}>{population}명</span>
-              {popChange!==0&&<span style={{fontSize:'9px',color:popChange>0?'#16a34a':'#dc2626',fontWeight:700}}>{popChange>0?`▲${popChange}`:`▼${Math.abs(popChange)}`}</span>}
-            </div>
-            {/* 만족도 */}
-            <div style={{display:'flex',alignItems:'center',gap:'4px',background:satBg,borderRadius:'8px',padding:'3px 8px'}}>
-              <span style={{fontSize:'11px'}}>{satIcon}</span>
-              <span style={{fontSize:'12px',color:satColor,fontWeight:800}}>{cityStats.sat}%</span>
-              {cityStats.deficit>0&&<span style={{fontSize:'9px',color:'#dc2626',fontWeight:700}}>⚠시설부족</span>}
-            </div>
-            {/* 등급 분포 */}
-            {Object.keys(bldgGrade).length>0&&(
-              <div style={{display:'flex',alignItems:'center',gap:'3px',background:'#fefce8',borderRadius:'8px',padding:'3px 7px'}}>
-                {['A','B','C'].map(g=>{
-                  const cnt=Object.values(bldgGrade).filter(v=>v.grade===g).length;
-                  if(!cnt)return null;
-                  return <span key={g} style={{fontSize:'10px',fontWeight:700,color:g==='A'?'#d97706':g==='B'?'#6366f1':'#94a3b8'}}>{g==='A'?'🌟':g==='B'?'⭐':''}{g}{cnt}</span>;
-                })}
-              </div>
-            )}
-            {/* 예상수입 */}
-            {hasBldg && <>
-              <span style={{fontSize:'10px',color:'#15803d',fontWeight:700}}>📊예상</span>
-              <span style={{fontSize:'13px',color:'#16a34a',fontWeight:900}}>+${preview.total}</span>
-              {interest>0&&<span style={{fontSize:'10px',color:'#dc2626',fontWeight:700}}>-${interest}</span>}
-            </>}
-            <div style={{flex:1}}/>
-            <button onClick={advanceMonth} style={{background:'linear-gradient(135deg,#16a34a,#15803d)',color:'white',border:'none',borderRadius:'8px',padding:'5px 12px',fontWeight:800,fontSize:'11px',cursor:'pointer',boxShadow:'0 2px 6px rgba(22,163,74,.3)'}}>⏭ 다음 달</button>
-          </div>
-        );
-      })()}
-
-      {/* BOTTOM TOOLBAR */}
-      <div style={{background:'white',borderTop:'2px solid #e2e8f0',flexShrink:0,boxShadow:'0 -2px 10px rgba(0,0,0,.06)'}}>
-        {/* Cat tabs */}
-        <div style={{display:'flex',borderBottom:'1px solid #f1f5f9'}}>
-          {CATS.map(ca=>(
-            <button key={ca.id} onClick={()=>setCat(ca.id)} style={{flex:1,padding:isMob?'6px 2px':'8px 4px',border:'none',borderBottom:cat===ca.id?'3px solid #6366f1':'3px solid transparent',background:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:'1px'}}>
-              <span style={{fontSize:isMob?'16px':'18px'}}>{ca.icon}</span>
-              <span style={{fontSize:isMob?'9px':'11px',fontWeight:700,color:cat===ca.id?'#6366f1':'#94a3b8'}}>{ca.label}</span>
-            </button>
-          ))}
-        </div>
-        {/* Tools */}
-        <div style={{display:'flex',gap:isMob?'6px':'8px',padding:isMob?'8px 10px':'10px 14px',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
-          {catTools.map(t=>{
-            const active=tool===t.id;
-            const stock=t.inv?inv[t.inv]:null;
-            const btnW = isMob?'62px':'72px';
-            const btnH = isMob?'58px':'66px';
-            return(
-              <div key={t.id} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'4px',flexShrink:0}}>
-                {/* 메인 도구 버튼 */}
-                <button onClick={()=>{SFX.click();setTool(active?null:t.id);if(!active){setLastKey(null);}}} style={{
-                  width:btnW, height:btnH, borderRadius:'16px',
-                  border:`2.5px solid ${active?t.color:'#e2e8f0'}`,
-                  background:active?t.color:'white', cursor:'pointer',
-                  display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:'3px',
-                  boxShadow:active?`0 4px 16px ${t.color}55`:'0 1px 4px rgba(0,0,0,.08)',
-                  transition:'all .15s', flexShrink:0}}>
-                  <span style={{fontSize:isMob?'22px':'26px'}}>{t.icon}</span>
-                  <span style={{fontSize:isMob?'10px':'11px',fontWeight:700,color:active?'white':t.color}}>{t.label}</span>
-                </button>
-                {/* 재고 + 구매 버튼 */}
-                {t.inv!=null&&(
-                  <div style={{display:'flex',flexDirection:'column',gap:'3px',alignItems:'center',width:btnW}}>
-                    <div style={{
-                      background:'#f1f5f9',borderRadius:'8px',
-                      padding:'3px 0', width:'100%', textAlign:'center',
-                      fontSize:isMob?'11px':'12px',color:'#475569',fontWeight:700,
-                    }}>보유 {stock}개</div>
-                    <button
-                      onClick={()=>buyInfra(t.inv,5)}
-                      style={{
-                        width:'100%',padding:isMob?'6px 0':'7px 0',
-                        borderRadius:'8px',fontWeight:800,
-                        fontSize:isMob?'11px':'12px',cursor:'pointer',
-                        color:t.color,background:t.color+'18',
-                        border:`1.5px solid ${t.color}66`,
-                      }}>+ 5개 구매</button>
-                  </div>
-                )}
-                {/* 회전 버튼 */}
-                {(tool==='bridge'||tool==='road')&&active&&t.id===tool&&(
-                  <button
-                    onClick={()=>t.id==='road'?setRoadRot(v=>v==='H'?'V':'H'):setBridgeRot(v=>v==='H'?'V':'H')}
-                    style={{
-                      width:btnW,padding:isMob?'6px 0':'7px 0',
-                      borderRadius:'8px',fontWeight:800,
-                      fontSize:isMob?'11px':'12px',cursor:'pointer',
-                      color:t.color,background:t.color+'18',
-                      border:`1.5px solid ${t.color}66`,
-                    }}>↻ 회전</button>
-                )}
-              </div>
             );
           })}
+
+          <div style={{flex:1}}/>
+
+          {/* 철거 */}
+          <button onClick={()=>{SFX.click();setTool(t=>t==='demolish'?null:'demolish');setPanel(null);}} style={{
+            width:'50px',padding:'8px 4px',borderRadius:'12px',border:'none',cursor:'pointer',
+            background:tool==='demolish'?'#ef4444':'rgba(255,255,255,.06)',
+            display:'flex',flexDirection:'column',alignItems:'center',gap:'2px',transition:'all .15s',
+          }}>
+            <span style={{fontSize:'20px',lineHeight:1}}>🗑</span>
+            <span style={{fontSize:'9px',fontWeight:700,color:tool==='demolish'?'white':'rgba(255,255,255,.5)',lineHeight:1}}>철거</span>
+          </button>
+
+          {/* 학습 */}
+          <button onClick={()=>{SFX.click();setShowVocab(true);}} style={{
+            width:'50px',padding:'8px 4px',borderRadius:'12px',border:'none',cursor:'pointer',
+            background:'rgba(255,255,255,.06)',
+            display:'flex',flexDirection:'column',alignItems:'center',gap:'2px',
+          }}>
+            <span style={{fontSize:'20px',lineHeight:1}}>📚</span>
+            <span style={{fontSize:'9px',fontWeight:700,color:'rgba(255,255,255,.5)',lineHeight:1}}>학습</span>
+          </button>
+
+          {/* 새게임 */}
+          <button onClick={()=>{SFX.click();setShowNewGame(true);}} style={{
+            width:'50px',padding:'8px 4px',borderRadius:'12px',border:'none',cursor:'pointer',
+            background:'rgba(255,255,255,.06)',
+            display:'flex',flexDirection:'column',alignItems:'center',gap:'2px',
+          }}>
+            <span style={{fontSize:'20px',lineHeight:1}}>🔄</span>
+            <span style={{fontSize:'9px',fontWeight:700,color:'rgba(255,255,255,.5)',lineHeight:1}}>새게임</span>
+          </button>
         </div>
-        {/* Stats bar */}
-        <div style={{display:'flex',padding:'4px 8px 7px',borderTop:'1px solid #f1f5f9',gap:'3px'}}>
-          {[
-            {l:'도로',v:grid.flat().filter(t=>ROADS.includes(t)).length,c:'#6366f1'},
-            {l:'다리',v:grid.flat().filter(t=>t===T.BRIDGE_H||t===T.BRIDGE_V).length,c:'#0ea5e9'},
-            {l:'공원',v:grid.flat().filter(t=>t===T.PARK).length,c:'#22c55e'},
-            {l:'토지',v:Object.keys(landMap).length,c:'#f59e0b'},
-            {l:'건물',v:Object.keys(bldgMap).length,c:'#f97316'},
-            {l:'퀴즈',v:`${score.correct}/${score.total}`,c:'#7c3aed'},
-          ].map(s=>(
-            <div key={s.l} style={{flex:1,textAlign:'center',padding:'3px 1px',background:'#f8fafc',borderRadius:'8px'}}>
-              <div style={{fontSize:'8px',color:'#94a3b8',fontWeight:700}}>{s.l}</div>
-              <div style={{fontSize:isMob?'11px':'13px',color:s.c,fontWeight:900,lineHeight:1.2}}>{s.v}</div>
+
+        {/* ── 지도 + 팝업 레이어 ── */}
+        <div style={{flex:1,position:'relative',overflow:'hidden'}}>
+
+          {/* 지도 */}
+          <div ref={viewRef} style={{position:'absolute',inset:0,cursor:tool?'crosshair':'grab',touchAction:'none',userSelect:'none'}}
+            onPointerDown={onPD} onPointerMove={onPM} onPointerUp={onPU} onPointerLeave={onPU}>
+            <div style={{position:'absolute',transform:`translate(${offset.x}px,${offset.y}px)`,width:mapW,height:mapH,willChange:'transform'}}>
+              <canvas ref={canvasRef} width={mapW} height={mapH} style={{position:'absolute',top:0,left:0,pointerEvents:'none'}}/>
+              {grid.map((row,ri)=>row.map((cell,ci)=>{
+                const key=`${ri},${ci}`;
+                return(
+                  <div key={key} style={{
+                    position:'absolute',left:ci*ts,top:ri*ts,width:ts,height:ts,
+                    pointerEvents:'none',overflow:'hidden',
+                    animation:recentTile===key?'tilePopIn 0.55s cubic-bezier(.34,1.56,.64,1) forwards':'none',
+                  }}>
+                    <TileArt type={cell} size={ts} land={!!landMap[key]} building={bldgMap[key]||B.NONE}/>
+                    {(bldgMap[key]||[T.POLICE,T.COMMUNITY,T.CARE].includes(cell))&&bldgGrade[key]&&bldgGrade[key].grade!=='C'&&(
+                      <div style={{position:'absolute',top:1,right:1,background:bldgGrade[key].grade==='A'?'#f59e0b':'#6366f1',borderRadius:'50%',width:ts*.28,height:ts*.28,display:'flex',alignItems:'center',justifyContent:'center',fontSize:ts*.18,zIndex:10,boxShadow:'0 1px 4px rgba(0,0,0,.3)',pointerEvents:'none'}}>
+                        {bldgGrade[key].grade==='A'?'🌟':'⭐'}
+                      </div>
+                    )}
+                  </div>
+                );
+              }))}
             </div>
-          ))}
+          </div>
+
+          {/* 지도 위 메시지 */}
+          {msg&&(
+            <div style={{position:'absolute',bottom:'50px',left:'50%',transform:'translateX(-50%)',
+              background:'rgba(15,20,40,.85)',color:'white',borderRadius:'20px',
+              padding:'5px 14px',fontSize:'12px',fontWeight:700,
+              whiteSpace:'nowrap',pointerEvents:'none',zIndex:50,
+              backdropFilter:'blur(4px)',maxWidth:'85%',overflow:'hidden',textOverflow:'ellipsis'}}>
+              {msg}
+            </div>
+          )}
+
+          {/* 활성 도구 인디케이터 */}
+          {tool&&activeTool&&(
+            <div style={{position:'absolute',top:8,left:'50%',transform:'translateX(-50%)',
+              background:activeTool.color,color:'white',borderRadius:'20px',
+              padding:'5px 14px',fontSize:'12px',fontWeight:800,
+              display:'flex',alignItems:'center',gap:'8px',zIndex:60,boxShadow:`0 2px 12px ${activeTool.color}66`}}>
+              <span>{activeTool.icon} {activeTool.label} 배치 중</span>
+              <button onClick={()=>setTool(null)} style={{background:'rgba(255,255,255,.25)',border:'none',borderRadius:'50%',width:'18px',height:'18px',color:'white',fontWeight:900,fontSize:'11px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:0,lineHeight:1}}>✕</button>
+            </div>
+          )}
+
+          {/* 미션 플로팅 바 */}
+          {currentMission&&(
+            <div style={{position:'absolute',bottom:0,left:0,right:0,
+              background:'rgba(21,15,5,.88)',backdropFilter:'blur(6px)',
+              borderTop:'1px solid rgba(253,224,71,.3)',padding:'6px 12px',
+              display:'flex',alignItems:'center',gap:'8px',zIndex:50}}>
+              <span style={{fontSize:'16px',flexShrink:0}}>{currentMission.icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:'11px',color:'#fde68a',fontWeight:800,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{currentMission.title}</div>
+                <div style={{background:'rgba(255,255,255,.15)',borderRadius:'99px',height:'5px',marginTop:'3px',overflow:'hidden'}}>
+                  <div style={{height:'100%',borderRadius:'99px',background:'linear-gradient(90deg,#f59e0b,#fde047)',width:`${Math.round(missionProgress.cur/missionProgress.max*100)}%`,transition:'width .4s'}}/>
+                </div>
+              </div>
+              <span style={{fontSize:'10px',color:'#fde68a',fontWeight:700,flexShrink:0}}>{missionProgress.cur}/{missionProgress.max}</span>
+              <button onClick={()=>flash(`💡 ${currentMission.hint}`)} style={{background:'rgba(253,224,71,.2)',border:'1px solid rgba(253,224,71,.4)',borderRadius:'8px',padding:'3px 8px',fontSize:'11px',color:'#fde68a',cursor:'pointer',flexShrink:0}}>💡</button>
+            </div>
+          )}
+
+          {/* 팝업 패널 (사이드바 카테고리 선택 시) */}
+          {panel&&(()=>{
+            const SIDE_CATS_MAP={
+              bank:  {label:'🏦 은행',     color:'#6366f1'},
+              infra: {label:'🛣 도로·공원', color:'#6366f1'},
+              public:{label:'🏛 공공시설',  color:'#10b981'},
+              estate:{label:'🏗 부동산·건물',color:'#f97316'},
+            };
+            const sc = SIDE_CATS_MAP[panel];
+            const toolsForPanel = TOOLS.filter(t=>t.cat===panel);
+            return (
+              <div style={{
+                position:'absolute',top:0,left:0,bottom:0,width:'230px',
+                background:'white',zIndex:150,
+                boxShadow:'4px 0 24px rgba(0,0,0,.25)',
+                display:'flex',flexDirection:'column',
+                animation:'slideInRight .2s ease',
+              }} onClick={e=>e.stopPropagation()}>
+
+                {/* 패널 헤더 */}
+                <div style={{background:`linear-gradient(135deg,${sc.color},${sc.color}cc)`,padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+                  <span style={{color:'white',fontWeight:800,fontSize:'15px'}}>{sc.label}</span>
+                  <button onClick={()=>setPanel(null)} style={{background:'rgba(255,255,255,.25)',border:'none',borderRadius:'50%',width:'26px',height:'26px',color:'white',fontSize:'14px',cursor:'pointer',fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center',padding:0}}>✕</button>
+                </div>
+
+                {/* 은행 패널 */}
+                {panel==='bank'&&(
+                  <div style={{flex:1,overflowY:'auto',padding:'12px'}}>
+                    {/* 대출 */}
+                    <div style={{background:'#eef2ff',borderRadius:'14px',padding:'12px',marginBottom:'10px'}}>
+                      <div style={{fontSize:'12px',fontWeight:800,color:'#6366f1',marginBottom:'8px'}}>📋 대출 ({loanToday}/{LOAN_DAY}회)</div>
+                      <div style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'8px'}}>
+                        <input type="range" min="100" max={Math.min(LOAN_PER,Math.max(100,LOAN_TOTAL-borrowed))} step="100" value={loanAmt} onChange={e=>setLoanAmt(+e.target.value)} style={{flex:1,accentColor:'#6366f1'}}/>
+                        <span style={{fontSize:'13px',fontWeight:800,color:'#6366f1',minWidth:'40px'}}>${loanAmt}</span>
+                      </div>
+                      <button onClick={takeLoan} disabled={loanToday>=LOAN_DAY||borrowed>=LOAN_TOTAL} style={{width:'100%',background:'#6366f1',color:'white',border:'none',borderRadius:'10px',padding:'9px',fontWeight:700,fontSize:'13px',cursor:'pointer',marginBottom:'6px'}}>대출 받기</button>
+                      {loan>0&&(
+                        <div style={{display:'flex',gap:'6px'}}>
+                          <button onClick={repay} style={{flex:1,background:'#fef2f2',color:'#dc2626',border:'1.5px solid #fca5a5',borderRadius:'10px',padding:'7px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>일부 상환</button>
+                          <button onClick={repayAll} style={{flex:1,background:'#dc2626',color:'white',border:'none',borderRadius:'10px',padding:'7px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>전액 상환</button>
+                        </div>
+                      )}
+                      {loan>0&&<div style={{fontSize:'10px',color:'#94a3b8',marginTop:'5px',textAlign:'center'}}>현재 대출: ${loan} | 월이자: ${Math.round(loan*.02)}</div>}
+                    </div>
+                    {/* 예금 */}
+                    <div style={{background:'#fffbeb',borderRadius:'14px',padding:'12px'}}>
+                      <div style={{fontSize:'12px',fontWeight:800,color:'#d97706',marginBottom:'8px'}}>💰 예금 (분당 +1%)</div>
+                      {deposit>0&&<div style={{fontSize:'12px',color:'#d97706',fontWeight:700,marginBottom:'6px',textAlign:'center'}}>예금 잔액: ${deposit}</div>}
+                      <div style={{display:'flex',alignItems:'center',gap:'6px',marginBottom:'8px'}}>
+                        <input type="range" min="10" max={Math.max(10,balance)} step="10" value={Math.min(depAmt,Math.max(10,balance))} onChange={e=>setDepAmt(+e.target.value)} style={{flex:1,accentColor:'#d97706'}}/>
+                        <span style={{fontSize:'13px',fontWeight:800,color:'#d97706',minWidth:'40px'}}>${Math.min(depAmt,Math.max(10,balance))}</span>
+                      </div>
+                      <div style={{display:'flex',gap:'6px'}}>
+                        <button onClick={doDeposit} disabled={balance<10} style={{flex:1,background:'#d97706',color:'white',border:'none',borderRadius:'10px',padding:'9px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>예금하기</button>
+                        {deposit>0&&<button onClick={doWithdraw} style={{flex:1,background:'#fffbeb',color:'#d97706',border:'1.5px solid #fde68a',borderRadius:'10px',padding:'9px',fontWeight:700,fontSize:'12px',cursor:'pointer'}}>인출하기</button>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 도구 패널 (infra/public/estate) */}
+                {panel!=='bank'&&(
+                  <div style={{flex:1,overflowY:'auto',padding:'10px',display:'flex',flexDirection:'column',gap:'7px'}}>
+                    {toolsForPanel.map(t=>{
+                      const isActive = tool===t.id;
+                      const stock = t.inv!=null ? inv[t.inv] : null;
+                      const cost = BUILD_COST[t.id];
+                      return (
+                        <div key={t.id} style={{borderRadius:'14px',border:`2px solid ${isActive?t.color:'#e2e8f0'}`,background:isActive?t.color+'10':'white',overflow:'hidden'}}>
+                          <button onClick={()=>{SFX.click();setTool(isActive?null:t.id);if(!isActive)setPanel(null);setLastKey(null);}} style={{
+                            width:'100%',padding:'10px 14px',background:'none',border:'none',cursor:'pointer',
+                            display:'flex',alignItems:'center',gap:'10px',textAlign:'left',
+                          }}>
+                            <span style={{fontSize:'24px',flexShrink:0}}>{t.icon}</span>
+                            <div style={{flex:1}}>
+                              <div style={{fontSize:'13px',fontWeight:800,color:isActive?t.color:'#1e293b'}}>{t.label}</div>
+                              {cost&&<div style={{fontSize:'10px',color:'#94a3b8',fontWeight:600}}>건설비 ${cost}</div>}
+                            </div>
+                            {stock!=null&&<span style={{fontSize:'11px',color:'#64748b',fontWeight:700,background:'#f1f5f9',padding:'2px 8px',borderRadius:'99px',flexShrink:0}}>×{stock}</span>}
+                            {isActive&&<span style={{fontSize:'11px',color:'white',fontWeight:800,background:t.color,padding:'3px 8px',borderRadius:'99px',flexShrink:0}}>배치중</span>}
+                          </button>
+                          {/* 재고 구매 버튼 */}
+                          {t.inv!=null&&(
+                            <div style={{padding:'0 12px 10px'}}>
+                              <button onClick={()=>buyInfra(t.inv,5)} style={{
+                                width:'100%',padding:'7px',borderRadius:'10px',fontWeight:700,
+                                fontSize:'12px',cursor:'pointer',color:t.color,
+                                background:t.color+'15',border:`1.5px solid ${t.color}55`,
+                              }}>+ 5개 구매</button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>{/* /지도+팝업 */}
+      </div>{/* /메인영역 */}
+
+      {/* ── 하단 정보바 ── */}
+      <div style={{background:'#151929',borderTop:'1px solid rgba(255,255,255,.07)',flexShrink:0,display:'flex',alignItems:'center',padding:'6px 12px',gap:'10px'}}>
+        {/* 로고 */}
+        <div style={{fontWeight:900,fontSize:'16px',letterSpacing:'-0.5px',flexShrink:0}}>
+          <span style={{color:'#818cf8'}}>Block</span><span style={{color:'#fb923c'}}>City</span>
         </div>
+        {/* 도시 등급 */}
+        {(()=>{
+          const acc2=score.total>0?Math.round(score.correct/score.total*100):0;
+          const cs=calcCityScore(population,cityStats.sat,acc2,monthIncome);
+          const cl=getCityLevel(cs);
+          const nl=getNextLevel(cs);
+          const pct=nl?Math.round((cs-cl.minScore)/(nl.minScore-cl.minScore)*100):100;
+          return(
+            <div style={{display:'flex',alignItems:'center',gap:'5px',flexShrink:0}}>
+              <div style={{background:cl.color+'25',border:`1px solid ${cl.color}55`,borderRadius:'99px',padding:'2px 8px',display:'flex',alignItems:'center',gap:'3px'}}>
+                <span style={{fontSize:'11px'}}>{cl.icon}</span>
+                <span style={{fontSize:'10px',fontWeight:800,color:cl.color}}>{cl.name}</span>
+              </div>
+              {nl&&<div style={{width:'36px',height:'5px',background:'rgba(255,255,255,.12)',borderRadius:'99px',overflow:'hidden'}}>
+                <div style={{height:'100%',borderRadius:'99px',background:`linear-gradient(90deg,${cl.color},${nl.color})`,width:`${pct}%`}}/>
+              </div>}
+            </div>
+          );
+        })()}
+        {/* 예상 수입 */}
+        <div style={{display:'flex',alignItems:'center',gap:'4px'}}>
+          <span style={{fontSize:'9px',color:'rgba(255,255,255,.4)',fontWeight:600}}>월예상</span>
+          <span style={{fontSize:'12px',color:'#4ade80',fontWeight:800}}>+${calcIncome(grid,bldgMap,bldgGrade,monthBonus).total}</span>
+        </div>
+        <div style={{flex:1}}/>
+        {/* 다음달 버튼 */}
+        <button onClick={advanceMonth} style={{
+          background:'linear-gradient(135deg,#16a34a,#15803d)',color:'white',
+          border:'none',borderRadius:'12px',padding:'7px 14px',
+          fontWeight:800,fontSize:'13px',cursor:'pointer',
+          boxShadow:'0 2px 10px rgba(22,163,74,.4)',whiteSpace:'nowrap',
+          display:'flex',alignItems:'center',gap:'4px',flexShrink:0,
+        }}>
+          <span>⏭</span><span>다음 달</span>
+        </button>
+        {/* BGM */}
+        <button onClick={toggleBGM} style={{
+          background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',
+          borderRadius:'10px',padding:'7px 10px',fontSize:'14px',cursor:'pointer',color:'white',flexShrink:0,
+        }}>{bgmOn?'🔊':'🔇'}</button>
       </div>
+
+      {/* ── 알림 토스트 ── */}
+      <div style={{position:'fixed',top:'48px',right:'8px',display:'flex',flexDirection:'column',gap:'6px',zIndex:4000,maxWidth:'280px',width:'calc(100vw - 80px)',pointerEvents:'none'}}>
+        {notifications.map(n=>{
+          const st=NOTIF_STYLE[n.type]||NOTIF_STYLE.info;
+          return(
+            <div key={n.id} onClick={()=>dismissNotif(n.id)} style={{
+              background:st.bg,border:`2px solid ${st.border}`,borderRadius:'14px',
+              padding:'9px 12px',boxShadow:'0 4px 20px rgba(0,0,0,.2)',
+              pointerEvents:'all',cursor:'pointer',animation:'slideInRight .2s ease',
+              display:'flex',gap:'8px',alignItems:'flex-start',userSelect:'none',
+            }}>
+              <span style={{fontSize:'16px',flexShrink:0}}>{st.icon}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:'11px',fontWeight:800,color:st.titleC,lineHeight:1.3}}>{n.title}</div>
+                <div style={{fontSize:'10px',color:st.bodyC,lineHeight:1.4,marginTop:'2px'}}>{n.body}</div>
+              </div>
+              <button onClick={e=>{e.stopPropagation();dismissNotif(n.id);}} style={{flexShrink:0,background:`${st.border}88`,border:'none',borderRadius:'50%',width:'18px',height:'18px',fontSize:'10px',color:st.titleC,cursor:'pointer',fontWeight:900,padding:0,lineHeight:'18px',textAlign:'center'}}>✕</button>
+            </div>
+          );
+        })}
+      </div>
+
 
       {/* 월결산 모달 */}
       {showIncome && incomeLog && (
@@ -2761,51 +2663,7 @@ export default function BlockCity(){
         </div>
       )}
 
-      {/* ── 알림 토스트 스택 ── */}
-      <div style={{
-        position:'fixed', top:isMob?'70px':'76px', right:'12px',
-        display:'flex', flexDirection:'column', gap:'8px',
-        zIndex:4000, maxWidth:'320px', width:'calc(100vw - 24px)',
-        pointerEvents:'none',
-      }}>
-        {notifications.map(n => {
-          const st = NOTIF_STYLE[n.type] || NOTIF_STYLE.info;
-          return (
-            <div
-              key={n.id}
-              onClick={()=>dismissNotif(n.id)}
-              style={{
-                background:st.bg, border:`2px solid ${st.border}`,
-                borderRadius:'16px', padding:'11px 14px',
-                boxShadow:'0 4px 24px rgba(0,0,0,.15)',
-                pointerEvents:'all', cursor:'pointer',
-                animation:'slideInRight .25s ease',
-                display:'flex', gap:'10px', alignItems:'flex-start',
-                userSelect:'none',
-              }}>
-              <span style={{fontSize:'20px',flexShrink:0,lineHeight:1.3,marginTop:'1px'}}>{st.icon}</span>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:'13px',fontWeight:800,color:st.titleC,lineHeight:1.3,marginBottom:'3px'}}>{n.title}</div>
-                <div style={{fontSize:'12px',color:st.bodyC,lineHeight:1.55,fontWeight:500}}>{n.body}</div>
-                {n.action && (
-                  <button onClick={e=>{e.stopPropagation();n.action();dismissNotif(n.id);}} style={{
-                    marginTop:'6px',background:st.border,border:'none',borderRadius:'6px',
-                    padding:'4px 12px',fontSize:'11px',fontWeight:700,color:st.titleC,cursor:'pointer',
-                  }}>{n.action.label||'바로 가기'}</button>
-                )}
-                <div style={{fontSize:'10px',color:st.titleC,opacity:.5,marginTop:'4px'}}>탭하여 닫기</div>
-              </div>
-              <button
-                onClick={e=>{e.stopPropagation();dismissNotif(n.id);}}
-                style={{flexShrink:0,background:`${st.border}88`,border:'none',borderRadius:'50%',
-                  width:'22px',height:'22px',fontSize:'12px',
-                  color:st.titleC,cursor:'pointer',lineHeight:'22px',textAlign:'center',
-                  fontWeight:800,padding:0,marginTop:'1px',
-                }}>✕</button>
-            </div>
-          );
-        })}
-      </div>
+
 
       {/* 📚 어휘 학습 현황 패널 */}
       {showVocab && (()=>{
