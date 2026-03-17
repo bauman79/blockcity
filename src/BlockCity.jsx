@@ -13,7 +13,67 @@ const B = { NONE:0, HOUSE:1, COMMERCIAL:2, HOSPITAL:3, ACADEMY:4 };
 const ROADS = [1,2,3,4,5,6,7,8,9,10,11];
 const LOAN_TOTAL=10000, LOAN_PER=1000, LOAN_DAY=5;
 const isRoad = t => ROADS.includes(t);
+// 초기 그리드: 빈 격자 생성
 const makeGrid = () => Array(MAP_H).fill(null).map(() => Array(MAP_W).fill(T.EMPTY));
+
+// 두 마을의 초기 데이터
+const STARTER_VILLAGES = (() => {
+  // 마을 레이아웃 생성 함수 (base_r, base_c 기준 오프셋 배치)
+  const buildVillage = (base_r, base_c) => {
+    const roads = [
+      [0,1,T.ROAD_V],[0,4,T.ROAD_V],
+      [1,1,T.ROAD_V],[1,4,T.ROAD_V],
+      [2,0,T.ROAD_H],[2,1,T.ROAD_X],[2,2,T.ROAD_H],[2,3,T.ROAD_H],[2,4,T.ROAD_X],[2,5,T.ROAD_H],
+      [3,1,T.ROAD_V],[3,4,T.ROAD_V],
+      [4,1,T.ROAD_V],[4,4,T.ROAD_V],
+      [5,1,T.ROAD_H],[5,2,T.ROAD_H],[5,3,T.ROAD_H],[5,4,T.ROAD_H],
+      [6,2,T.PARK],[6,3,T.PARK],
+    ];
+    const houses  = [[1,2],[1,3],[3,2],[3,5]];
+    const commercials = [[4,3]];
+    const gridItems = [], landKeys = [], bldgItems = [];
+    roads.forEach(([ro,co,t])=>gridItems.push([base_r+ro, base_c+co, t]));
+    houses.forEach(([ro,co])=>{
+      const k=`${base_r+ro},${base_c+co}`;
+      landKeys.push(k); bldgItems.push([k, B.HOUSE]);
+    });
+    commercials.forEach(([ro,co])=>{
+      const k=`${base_r+ro},${base_c+co}`;
+      landKeys.push(k); bldgItems.push([k, B.COMMERCIAL]);
+    });
+    return {gridItems, landKeys, bldgItems};
+  };
+  const v1 = buildVillage(9, 2);   // 좌측 마을
+  const v2 = buildVillage(23, 39); // 우측 마을
+  return {
+    gridItems:  [...v1.gridItems,  ...v2.gridItems],
+    landKeys:   [...v1.landKeys,   ...v2.landKeys],
+    bldgItems:  [...v1.bldgItems,  ...v2.bldgItems],
+  };
+})();
+
+// 초기 마을이 포함된 그리드·랜드맵·건물맵 생성
+const makeStartGrid = () => {
+  const g = makeGrid();
+  STARTER_VILLAGES.gridItems.forEach(([r,c,t]) => { if(r<MAP_H&&c<MAP_W) g[r][c]=t; });
+  return updateRoads(g);
+};
+const makeStartLand = () => {
+  const m = {};
+  STARTER_VILLAGES.landKeys.forEach(k => { m[k] = true; });
+  return m;
+};
+const makeStartBldg = () => {
+  const m = {};
+  STARTER_VILLAGES.bldgItems.forEach(([k,t]) => { m[k] = t; });
+  return m;
+};
+// 마을 주택 수 기반 초기 인구
+const VILLAGE_INIT_POP = STARTER_VILLAGES.bldgItems.filter(([,t])=>t===B.HOUSE).length * 5;
+// 마을 초기 건물/도로 수 (미션 카운트에서 제외용)
+const VILLAGE_INIT_HOUSES   = STARTER_VILLAGES.bldgItems.filter(([,t])=>t===B.HOUSE).length;
+const VILLAGE_INIT_COMMERCIALS = STARTER_VILLAGES.bldgItems.filter(([,t])=>t===B.COMMERCIAL).length;
+const VILLAGE_INIT_ROADS    = STARTER_VILLAGES.gridItems.filter(([,,t])=>ROADS.includes(t)).length;
 const adjRoad = (g,r,c) =>
   [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].some(([nr,nc])=>nr>=0&&nr<MAP_H&&nc>=0&&nc<MAP_W&&isRoad(g[nr][nc]));
 
@@ -384,16 +444,20 @@ function renderTerrain(canvas, ts) {
     const base = 196; // #c4
     const g = Math.round(212 + n1*8 - 4);  // green channel
     const b = Math.round(154 + n2*6 - 3);  // blue channel
-    ctx.fillStyle = `rgb(${base},${g},${b})`;
+    // 픽셀아트 팔레트: 밝은/어두운 2가지 초록 교대
+    const px_variant = (Math.floor(c/2)+Math.floor(r/2))%2;
+    ctx.fillStyle = px_variant ? '#5aac30' : '#4e9828';
     ctx.fillRect(x, y, ts, ts);
-
-    if(ts >= 36){
-      ctx.fillStyle = `rgba(80,120,20,${0.04+n1*0.04})`;
-      for(let i=0;i<3;i++){
-        const px=x+nr(c*7+i,r*5)*ts;
-        const py=y+nr(c*3,r*7+i)*ts;
-        ctx.fillRect(px,py,1.5,ts*0.15);
-      }
+    // 픽셀 테두리 (잔디 타일 경계 강조)
+    ctx.strokeStyle = '#3a7818';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(x+0.4, y+0.4, ts-0.8, ts-0.8);
+    // 노이즈 풀잎 (작은 픽셀 점)
+    if(n1>0.7){
+      ctx.fillStyle='#3a8018';
+      const dotX=x+Math.floor(n1*ts);
+      const dotY=y+Math.floor(n2*ts);
+      ctx.fillRect(dotX, dotY, 2, 2);
     }
   }
 
@@ -406,12 +470,14 @@ function renderTerrain(canvas, ts) {
     const waterD = r<MAP_H-1 && TERRAIN[r+1][c]===1;
     const horiz = waterL||waterR;
 
-    const gd = ctx.createLinearGradient(x,y, horiz?x+ts:x, horiz?y:y+ts);
-    gd.addColorStop(0,'#6ab8dc');
-    gd.addColorStop(0.4,'#4e9dc8');
-    gd.addColorStop(1,'#2e78b0');
-    ctx.fillStyle=gd;
+    // 픽셀아트: 단색 + 밝은 테두리
+    ctx.fillStyle='#2e78b0';
     ctx.fillRect(x,y,ts,ts);
+    // 내부 밝은 영역 (픽셀아트 하이라이트)
+    ctx.fillStyle='#4a98cc';
+    ctx.fillRect(x+2,y+2,ts-4,ts-4);
+    ctx.fillStyle='#5aaad8';
+    ctx.fillRect(x+4,y+4,ts-8,ts-8);
 
     ctx.strokeStyle='rgba(255,255,255,0.35)';
     ctx.lineWidth=1.2;
@@ -439,11 +505,11 @@ function renderTerrain(canvas, ts) {
     if(TERRAIN[r][c]!==4) continue;
     const x=c*ts, y=r*ts;
     const n1=nr(c,r,1), n2=nr(c,r,2), n3=nr(c,r,3);
-    const gd=ctx.createRadialGradient(x+ts*.5,y+ts*.5,ts*.1,x+ts*.5,y+ts*.5,ts*.7);
-    gd.addColorStop(0,'#4a8c28');
-    gd.addColorStop(1,'#2e5c14');
-    ctx.fillStyle=gd;
+    // 픽셀아트 숲 배경
+    ctx.fillStyle='#2e5c14';
     ctx.fillRect(x,y,ts,ts);
+    ctx.fillStyle='#3a7418';
+    ctx.fillRect(x+1,y+1,ts-2,ts-2);
 
     const t1x=x+ts*(0.35+n1*0.15), t1y=y+ts*(0.2+n2*0.1);
     ctx.beginPath();
@@ -486,13 +552,7 @@ function renderTerrain(canvas, ts) {
     });
   }
 
-  ctx.strokeStyle='rgba(0,0,0,0.055)';
-  ctx.lineWidth=0.5;
-  for(let r=0;r<MAP_H;r++) for(let c=0;c<MAP_W;c++){
-    if(TERRAIN[r][c]!==0) continue;
-    const x=c*ts, y=r*ts;
-    ctx.strokeRect(x+0.25,y+0.25,ts-0.5,ts-0.5);
-  }
+  // 픽셀아트: 별도 격자선 없음 (타일 자체 테두리로 경계 표현)
 }
 
 // ═══ ROAD LOGIC ══════════════════════════════════════════════
@@ -518,47 +578,289 @@ function updateRoads(g){
   return ng;
 }
 
-// ═══ SVG TILES ═══════════════════════════════════════════════
+// ═══ SVG TILES (픽셀아트 스타일) ════════════════════════════
+// viewBox 16×16, 1칸=1픽셀블록, 팔레트 제한, 외곽선 통일
 const svSt = s => ({imageRendering:'pixelated',display:'block',width:s,height:s,position:'absolute',top:0,left:0,pointerEvents:'none'});
-const V = '0 0 44 44';
+const V = '0 0 16 16';  // 픽셀아트: 16×16 그리드
 
-function RoadH({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}><rect width="44" height="44" fill="#78818c"/><rect y="5" width="44" height="34" fill="#525a63"/><rect y="5" width="44" height="2" fill="#e8e0c8"/><rect y="37" width="44" height="2" fill="#e8e0c8"/>{[2,11,20,29,37].map(x=><rect key={x} x={x} y="20" width="5" height="4" fill="#e0b438" opacity=".85"/>)}</svg>;}
-function RoadV({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}><rect width="44" height="44" fill="#78818c"/><rect x="5" width="34" height="44" fill="#525a63"/><rect x="5" width="2" height="44" fill="#e8e0c8"/><rect x="37" width="2" height="44" fill="#e8e0c8"/>{[2,11,20,29,37].map(y=><rect key={y} x="20" y={y} width="4" height="5" fill="#e0b438" opacity=".85"/>)}</svg>;}
-function RoadX({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}><rect width="44" height="44" fill="#78818c"/><rect y="5" width="44" height="34" fill="#525a63"/><rect x="5" width="34" height="44" fill="#525a63"/>{[[0,0],[38,0],[0,38],[38,38]].map(([x,y])=><rect key={`${x}${y}`} x={x} y={y} width="6" height="6" fill="#78818c"/>)}<rect x="20" y="0" width="4" height="6" fill="#e0b438" opacity=".7"/><rect x="20" y="38" width="4" height="6" fill="#e0b438" opacity=".7"/><rect y="20" width="6" height="4" fill="#e0b438" opacity=".7"/><rect x="38" y="20" width="6" height="4" fill="#e0b438" opacity=".7"/></svg>;}
-function RoadCorner({s,N,S,W,E}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}><rect width="44" height="44" fill="#78818c"/>{(W||E)&&<rect y="5" width="44" height="34" fill="#525a63"/>}{(N||S)&&<rect x="5" width="34" height="44" fill="#525a63"/>}{!W&&<rect x="0" y="5" width="6" height="34" fill="#78818c"/>}{!E&&<rect x="38" y="5" width="6" height="34" fill="#78818c"/>}{!N&&<rect x="5" y="0" width="34" height="6" fill="#78818c"/>}{!S&&<rect x="5" y="38" width="34" height="6" fill="#78818c"/>}{W&&<rect y="20" width="6" height="4" fill="#e0b438" opacity=".7"/>}{E&&<rect x="38" y="20" width="6" height="4" fill="#e0b438" opacity=".7"/>}{N&&<rect x="20" y="0" width="4" height="6" fill="#e0b438" opacity=".7"/>}{S&&<rect x="20" y="38" width="4" height="6" fill="#e0b438" opacity=".7"/>}</svg>;}
+function RoadH({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
+  {/* 인도 */}
+  <rect width="16" height="16" fill="#8890a0"/>
+  {/* 차도 */}
+  <rect x="0" y="2" width="16" height="12" fill="#3a3f47"/>
+  {/* 인도 경계 */}
+  <rect x="0" y="2" width="16" height="1" fill="#c0c8d0"/>
+  <rect x="0" y="13" width="16" height="1" fill="#c0c8d0"/>
+  {/* 중앙 점선 */}
+  <rect x="0" y="7" width="3" height="2" fill="#f0d030"/>
+  <rect x="5" y="7" width="3" height="2" fill="#f0d030"/>
+  <rect x="10" y="7" width="3" height="2" fill="#f0d030"/>
+  {/* 횡단보도 (왼쪽) */}
+  <rect x="0" y="3" width="2" height="1" fill="#e8e8e8"/>
+  <rect x="0" y="5" width="2" height="1" fill="#e8e8e8"/>
+  <rect x="0" y="7" width="2" height="1" fill="#e8e8e8" opacity=".4"/>
+  <rect x="0" y="9" width="2" height="1" fill="#e8e8e8"/>
+  <rect x="0" y="11" width="2" height="1" fill="#e8e8e8"/>
+  {/* 횡단보도 (오른쪽) */}
+  <rect x="14" y="3" width="2" height="1" fill="#e8e8e8"/>
+  <rect x="14" y="5" width="2" height="1" fill="#e8e8e8"/>
+  <rect x="14" y="7" width="2" height="1" fill="#e8e8e8" opacity=".4"/>
+  <rect x="14" y="9" width="2" height="1" fill="#e8e8e8"/>
+  <rect x="14" y="11" width="2" height="1" fill="#e8e8e8"/>
+</svg>;}
+function RoadV({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
+  <rect width="16" height="16" fill="#8890a0"/>
+  <rect x="2" y="0" width="12" height="16" fill="#3a3f47"/>
+  <rect x="2" y="0" width="1" height="16" fill="#c0c8d0"/>
+  <rect x="13" y="0" width="1" height="16" fill="#c0c8d0"/>
+  <rect x="7" y="0" width="2" height="3" fill="#f0d030"/>
+  <rect x="7" y="5" width="2" height="3" fill="#f0d030"/>
+  <rect x="7" y="10" width="2" height="3" fill="#f0d030"/>
+  <rect x="3" y="0" width="1" height="2" fill="#e8e8e8"/>
+  <rect x="5" y="0" width="1" height="2" fill="#e8e8e8"/>
+  <rect x="7" y="0" width="1" height="2" fill="#e8e8e8" opacity=".4"/>
+  <rect x="9" y="0" width="1" height="2" fill="#e8e8e8"/>
+  <rect x="11" y="0" width="1" height="2" fill="#e8e8e8"/>
+  <rect x="3" y="14" width="1" height="2" fill="#e8e8e8"/>
+  <rect x="5" y="14" width="1" height="2" fill="#e8e8e8"/>
+  <rect x="7" y="14" width="1" height="2" fill="#e8e8e8" opacity=".4"/>
+  <rect x="9" y="14" width="1" height="2" fill="#e8e8e8"/>
+  <rect x="11" y="14" width="1" height="2" fill="#e8e8e8"/>
+</svg>;}
+function RoadX({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
+  <rect width="16" height="16" fill="#8890a0"/>
+  {/* 모서리 인도 */}
+  <rect x="0" y="0" width="2" height="2" fill="#8890a0"/>
+  <rect x="14" y="0" width="2" height="2" fill="#8890a0"/>
+  <rect x="0" y="14" width="2" height="2" fill="#8890a0"/>
+  <rect x="14" y="14" width="2" height="2" fill="#8890a0"/>
+  {/* 차도 십자 */}
+  <rect x="0" y="2" width="16" height="12" fill="#3a3f47"/>
+  <rect x="2" y="0" width="12" height="16" fill="#3a3f47"/>
+  {/* 정지선 */}
+  <rect x="2" y="2" width="12" height="1" fill="#e8e8e8" opacity=".5"/>
+  <rect x="2" y="13" width="12" height="1" fill="#e8e8e8" opacity=".5"/>
+  <rect x="2" y="2" width="1" height="12" fill="#e8e8e8" opacity=".5"/>
+  <rect x="13" y="2" width="1" height="12" fill="#e8e8e8" opacity=".5"/>
+</svg>;}
+function RoadCorner({s,N,S,W,E}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
+  <rect width="16" height="16" fill="#8890a0"/>
+  {(W||E)&&<rect x="0" y="2" width="16" height="12" fill="#3a3f47"/>}
+  {(N||S)&&<rect x="2" y="0" width="12" height="16" fill="#3a3f47"/>}
+  {/* 인도 경계 */}
+  {(W||E)&&<rect x="0" y="2" width="16" height="1" fill="#c0c8d0"/>}
+  {(W||E)&&<rect x="0" y="13" width="16" height="1" fill="#c0c8d0"/>}
+  {(N||S)&&<rect x="2" y="0" width="1" height="16" fill="#c0c8d0"/>}
+  {(N||S)&&<rect x="13" y="0" width="1" height="16" fill="#c0c8d0"/>}
+  {/* 중앙선 */}
+  {W&&<rect x="0" y="7" width="3" height="2" fill="#f0d030"/>}
+  {E&&<rect x="13" y="7" width="3" height="2" fill="#f0d030"/>}
+  {N&&<rect x="7" y="0" width="2" height="3" fill="#f0d030"/>}
+  {S&&<rect x="7" y="13" width="2" height="3" fill="#f0d030"/>}
+</svg>;}
 
 function BridgeH({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
-  <rect width="44" height="44" fill="#3d7fb5"/>
-  <rect y="8" width="44" height="5" fill="#888" opacity=".9"/>
-  <rect y="31" width="44" height="5" fill="#888" opacity=".9"/>
-  <rect y="13" width="44" height="18" fill="#aaa"/>
-  <rect y="13" width="44" height="2" fill="#ccc"/><rect y="29" width="44" height="2" fill="#ccc"/>
-  {[4,14,24,34].map(x=><rect key={x} x={x} y="9" width="4" height="26" fill="#888" opacity=".6"/>)}
-  {[2,10,18,26,34,41].map(x=><rect key={x} x={x} y="20" width="3" height="4" fill="#e0b438" opacity=".8"/>)}
-  <rect y="5" width="44" height="3" fill="rgba(255,255,255,.15)"/>
+  {/* 강 */}
+  <rect width="16" height="16" fill="#3a7ab0"/>
+  {/* 다리 상판 */}
+  <rect x="0" y="4" width="16" height="8" fill="#a09070"/>
+  {/* 도로면 */}
+  <rect x="0" y="5" width="16" height="6" fill="#8a7a60"/>
+  {/* 중앙선 */}
+  <rect x="0" y="7" width="3" height="2" fill="#f0d030"/>
+  <rect x="5" y="7" width="3" height="2" fill="#f0d030"/>
+  <rect x="10" y="7" width="3" height="2" fill="#f0d030"/>
+  {/* 난간 */}
+  <rect x="0" y="4" width="16" height="1" fill="#c8b890"/>
+  <rect x="0" y="11" width="16" height="1" fill="#c8b890"/>
+  {/* 교각 */}
+  <rect x="3" y="0" width="2" height="4" fill="#6a6050"/>
+  <rect x="11" y="0" width="2" height="4" fill="#6a6050"/>
+  <rect x="3" y="12" width="2" height="4" fill="#6a6050"/>
+  <rect x="11" y="12" width="2" height="4" fill="#6a6050"/>
+  {/* 물결 */}
+  <rect x="0" y="1" width="4" height="1" fill="rgba(255,255,255,.3)"/>
+  <rect x="6" y="2" width="4" height="1" fill="rgba(255,255,255,.2)"/>
+  <rect x="12" y="1" width="3" height="1" fill="rgba(255,255,255,.3)"/>
+  <rect x="1" y="13" width="3" height="1" fill="rgba(255,255,255,.2)"/>
+  <rect x="7" y="14" width="5" height="1" fill="rgba(255,255,255,.3)"/>
 </svg>;}
-
 function BridgeV({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
-  <rect width="44" height="44" fill="#3d7fb5"/>
-  <rect x="8" width="5" height="44" fill="#888" opacity=".9"/>
-  <rect x="31" width="5" height="44" fill="#888" opacity=".9"/>
-  <rect x="13" width="18" height="44" fill="#aaa"/>
-  <rect x="13" width="2" height="44" fill="#ccc"/><rect x="29" width="2" height="44" fill="#ccc"/>
-  {[4,14,24,34].map(y=><rect key={y} x="9" y={y} width="26" height="4" fill="#888" opacity=".6"/>)}
-  {[2,10,18,26,34,41].map(y=><rect key={y} x="20" y={y} width="4" height="3" fill="#e0b438" opacity=".8"/>)}
-  <rect x="5" width="3" height="44" fill="rgba(255,255,255,.15)"/>
+  <rect width="16" height="16" fill="#3a7ab0"/>
+  <rect x="4" y="0" width="8" height="16" fill="#a09070"/>
+  <rect x="5" y="0" width="6" height="16" fill="#8a7a60"/>
+  <rect x="7" y="0" width="2" height="3" fill="#f0d030"/>
+  <rect x="7" y="5" width="2" height="3" fill="#f0d030"/>
+  <rect x="7" y="10" width="2" height="3" fill="#f0d030"/>
+  <rect x="4" y="0" width="1" height="16" fill="#c8b890"/>
+  <rect x="11" y="0" width="1" height="16" fill="#c8b890"/>
+  <rect x="0" y="3" width="4" height="2" fill="#6a6050"/>
+  <rect x="0" y="11" width="4" height="2" fill="#6a6050"/>
+  <rect x="12" y="3" width="4" height="2" fill="#6a6050"/>
+  <rect x="12" y="11" width="4" height="2" fill="#6a6050"/>
+  <rect x="0" y="1" width="3" height="1" fill="rgba(255,255,255,.3)"/>
+  <rect x="1" y="7" width="3" height="1" fill="rgba(255,255,255,.2)"/>
+  <rect x="13" y="4" width="3" height="1" fill="rgba(255,255,255,.3)"/>
+</svg>;}
+function TilePark({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
+  {/* 잔디 */}
+  <rect width="16" height="16" fill="#4a9e28"/>
+  <rect x="0" y="0" width="16" height="16" fill="none" stroke="#2d7a14" strokeWidth="1"/>
+  {/* 산책로 십자 */}
+  <rect x="7" y="0" width="2" height="16" fill="#c8b46a"/>
+  <rect x="0" y="7" width="16" height="2" fill="#c8b46a"/>
+  {/* 나무 4그루 (탑다운 원) */}
+  <rect x="2" y="2" width="4" height="4" fill="#2d7a14"/>
+  <rect x="3" y="2" width="2" height="4" fill="#3a9a1e"/>
+  <rect x="2" y="3" width="4" height="2" fill="#3a9a1e"/>
+  <rect x="10" y="2" width="4" height="4" fill="#2d7a14"/>
+  <rect x="11" y="2" width="2" height="4" fill="#3a9a1e"/>
+  <rect x="10" y="3" width="4" height="2" fill="#3a9a1e"/>
+  <rect x="2" y="10" width="4" height="4" fill="#2d7a14"/>
+  <rect x="3" y="10" width="2" height="4" fill="#3a9a1e"/>
+  <rect x="2" y="11" width="4" height="2" fill="#3a9a1e"/>
+  <rect x="10" y="10" width="4" height="4" fill="#2d7a14"/>
+  <rect x="11" y="10" width="2" height="4" fill="#3a9a1e"/>
+  <rect x="10" y="11" width="4" height="2" fill="#3a9a1e"/>
+  {/* 분수 */}
+  <rect x="7" y="7" width="2" height="2" fill="#5ab8e0"/>
+  <rect x="7" y="7" width="2" height="1" fill="#88d4f8"/>
+</svg>;}
+function TilePolice({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
+  {/* 지면 */}
+  <rect width="16" height="16" fill="#c0c8d8"/>
+  <rect x="0" y="0" width="16" height="16" fill="none" stroke="#8898b8" strokeWidth="1"/>
+  {/* 건물 본체 */}
+  <rect x="1" y="1" width="14" height="14" fill="#1a38d0"/>
+  <rect x="2" y="2" width="12" height="12" fill="#2244b8"/>
+  {/* 지붕 하이라이트 */}
+  <rect x="2" y="2" width="12" height="2" fill="#3060e0"/>
+  {/* 경광등 */}
+  <rect x="3" y="4" width="2" height="2" fill="#e82020"/>
+  <rect x="4" y="4" width="1" height="1" fill="#ff5050"/>
+  <rect x="11" y="4" width="2" height="2" fill="#2060f0"/>
+  <rect x="12" y="4" width="1" height="1" fill="#60a0ff"/>
+  {/* 창문 */}
+  <rect x="2" y="8" width="3" height="3" fill="#88ccff"/>
+  <rect x="6" y="8" width="3" height="3" fill="#88ccff"/>
+  <rect x="10" y="8" width="3" height="3" fill="#88ccff"/>
+  {/* 입구 */}
+  <rect x="6" y="11" width="4" height="3" fill="#0a1040"/>
+  <rect x="7" y="11" width="2" height="3" fill="#1020a0" opacity=".5"/>
+</svg>;}
+function TileCommunity({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
+  <rect width="16" height="16" fill="#b8ddc8"/>
+  <rect x="0" y="0" width="16" height="16" fill="none" stroke="#3a7a50" strokeWidth="1"/>
+  <rect x="1" y="1" width="14" height="14" fill="#0a6628"/>
+  <rect x="2" y="2" width="12" height="12" fill="#1eaa58"/>
+  <rect x="2" y="2" width="12" height="2" fill="#28cc68"/>
+  {/* 깃발 */}
+  <rect x="7" y="1" width="1" height="4" fill="#084820"/>
+  <rect x="8" y="1" width="3" height="2" fill="#28c860"/>
+  {/* 창문 */}
+  <rect x="2" y="6" width="3" height="3" fill="#80dba8" opacity=".8"/>
+  <rect x="6" y="6" width="3" height="3" fill="#80dba8" opacity=".8"/>
+  <rect x="10" y="6" width="3" height="3" fill="#80dba8" opacity=".8"/>
+  <rect x="2" y="10" width="3" height="2" fill="#80dba8" opacity=".6"/>
+  <rect x="10" y="10" width="3" height="2" fill="#80dba8" opacity=".6"/>
+  {/* 입구 */}
+  <rect x="6" y="11" width="4" height="3" fill="#083318"/>
+</svg>;}
+function TileCare({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}>
+  <rect width="16" height="16" fill="#f0c0d0"/>
+  <rect x="0" y="0" width="16" height="16" fill="none" stroke="#a03060" strokeWidth="1"/>
+  <rect x="1" y="1" width="14" height="14" fill="#a81848"/>
+  <rect x="2" y="2" width="12" height="12" fill="#d01858"/>
+  <rect x="2" y="2" width="12" height="2" fill="#e02060"/>
+  {/* 십자 */}
+  <rect x="6" y="4" width="4" height="8" fill="white"/>
+  <rect x="4" y="6" width="8" height="4" fill="white"/>
+  <rect x="7" y="5" width="2" height="6" fill="#f0f0f0"/>
+  <rect x="5" y="7" width="6" height="2" fill="#f0f0f0"/>
+</svg>;}
+function BldgHouse({s}){return <svg width={s} height={s} viewBox={V} style={{...svSt(s),zIndex:2}}>
+  {/* 마당 */}
+  <rect width="16" height="16" fill="#d0b870"/>
+  <rect x="0" y="0" width="16" height="16" fill="none" stroke="#a08840" strokeWidth="1"/>
+  {/* 지붕 */}
+  <rect x="2" y="2" width="12" height="10" fill="#c02820"/>
+  <rect x="3" y="3" width="10" height="8" fill="#d83830"/>
+  {/* 용마루 */}
+  <rect x="7" y="2" width="2" height="10" fill="#a02010"/>
+  {/* 지붕 밝기 */}
+  <rect x="3" y="3" width="10" height="1" fill="#e84838" opacity=".6"/>
+  {/* 굴뚝 */}
+  <rect x="10" y="1" width="2" height="3" fill="#604028"/>
+  <rect x="10" y="1" width="2" height="1" fill="#805040"/>
+  {/* 창문 */}
+  <rect x="3" y="5" width="3" height="3" fill="#8cd4f8"/>
+  <rect x="3" y="5" width="3" height="1" fill="rgba(255,255,255,.5)"/>
+  <rect x="10" y="5" width="3" height="3" fill="#8cd4f8"/>
+  <rect x="10" y="5" width="3" height="1" fill="rgba(255,255,255,.5)"/>
+  {/* 문 */}
+  <rect x="6" y="9" width="4" height="4" fill="#7a4a18"/>
+  <rect x="7" y="9" width="2" height="4" fill="#6a3a10" opacity=".5"/>
+  <rect x="9" y="11" width="1" height="1" fill="#e8a820"/>
+</svg>;}
+function BldgCommercial({s}){return <svg width={s} height={s} viewBox={V} style={{...svSt(s),zIndex:2}}>
+  {/* 외곽 */}
+  <rect width="16" height="16" fill="#9098b0"/>
+  <rect x="0" y="0" width="16" height="16" fill="none" stroke="#6070a0" strokeWidth="1"/>
+  {/* 옥상 */}
+  <rect x="1" y="1" width="14" height="14" fill="#5878a8"/>
+  <rect x="2" y="2" width="12" height="12" fill="#7898c8"/>
+  <rect x="2" y="2" width="12" height="2" fill="#90b0e0"/>
+  {/* 옥상 구조물 */}
+  <rect x="4" y="4" width="8" height="5" fill="#4868a0"/>
+  <rect x="5" y="5" width="6" height="3" fill="#5878b0"/>
+  {/* 간판 */}
+  <rect x="2" y="10" width="12" height="3" fill="#e8a820"/>
+  <rect x="3" y="11" width="10" height="1" fill="#f8c030"/>
+  {/* 입구 */}
+  <rect x="5" y="12" width="6" height="3" fill="#1a2244"/>
+  <rect x="6" y="12" width="2" height="3" fill="#2a3254" opacity=".6"/>
+  <rect x="9" y="12" width="2" height="3" fill="#2a3254" opacity=".6"/>
+</svg>;}
+function BldgHospital({s}){return <svg width={s} height={s} viewBox={V} style={{...svSt(s),zIndex:2}}>
+  <rect width="16" height="16" fill="#d0d8e0"/>
+  <rect x="0" y="0" width="16" height="16" fill="none" stroke="#8898b0" strokeWidth="1"/>
+  {/* 옥상 */}
+  <rect x="1" y="1" width="14" height="14" fill="#c0ccd8"/>
+  <rect x="2" y="2" width="12" height="12" fill="#dce8ee"/>
+  <rect x="2" y="2" width="12" height="2" fill="#eaf4f8"/>
+  {/* 빨간 십자 (헬기장) */}
+  <rect x="6" y="4" width="4" height="8" fill="#d02858"/>
+  <rect x="4" y="6" width="8" height="4" fill="#d02858"/>
+  <rect x="7" y="5" width="2" height="6" fill="#e83870" opacity=".5"/>
+  <rect x="5" y="7" width="6" height="2" fill="#e83870" opacity=".5"/>
+  {/* 창문 */}
+  <rect x="2" y="12" width="3" height="2" fill="#9ad4f8"/>
+  <rect x="6" y="12" width="3" height="2" fill="#9ad4f8"/>
+  <rect x="11" y="12" width="2" height="2" fill="#9ad4f8"/>
+</svg>;}
+function BldgAcademy({s}){return <svg width={s} height={s} viewBox={V} style={{...svSt(s),zIndex:2}}>
+  <rect width="16" height="16" fill="#e8d888"/>
+  <rect x="0" y="0" width="16" height="16" fill="none" stroke="#a09020" strokeWidth="1"/>
+  {/* 옥상 */}
+  <rect x="1" y="1" width="14" height="14" fill="#c09020"/>
+  <rect x="2" y="2" width="12" height="12" fill="#e8c040"/>
+  <rect x="2" y="2" width="12" height="2" fill="#f8d850"/>
+  {/* 중앙 탑 */}
+  <rect x="6" y="0" width="4" height="3" fill="#b08020"/>
+  <rect x="7" y="0" width="2" height="3" fill="#d0a030"/>
+  {/* ㄷ자 구조 */}
+  <rect x="2" y="4" width="12" height="3" fill="#c09420"/>
+  <rect x="3" y="5" width="10" height="1" fill="#d0a828" opacity=".6"/>
+  {/* 창문 격자 */}
+  <rect x="2" y="8" width="2" height="3" fill="#9ad4f8" opacity=".7"/>
+  <rect x="5" y="8" width="2" height="3" fill="#9ad4f8" opacity=".7"/>
+  <rect x="8" y="8" width="2" height="3" fill="#9ad4f8" opacity=".7"/>
+  <rect x="11" y="8" width="2" height="3" fill="#9ad4f8" opacity=".7"/>
+  {/* 입구 */}
+  <rect x="6" y="12" width="4" height="2" fill="#553300"/>
 </svg>;}
 
-function TilePark({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}><rect width="44" height="44" fill="#4a9e28"/><circle cx="12" cy="12" r="9" fill="#2d7a14"/><circle cx="12" cy="10" r="7" fill="#3a9a1e"/><circle cx="32" cy="12" r="9" fill="#2d7a14"/><circle cx="32" cy="10" r="7" fill="#3a9a1e"/><circle cx="22" cy="30" r="10" fill="#2d7a14"/><circle cx="22" cy="28" r="8" fill="#3a9a1e"/><rect x="10" y="19" width="3" height="6" fill="#7a4a18"/><rect x="30" y="19" width="3" height="6" fill="#7a4a18"/><rect x="20" y="36" width="3" height="7" fill="#7a4a18"/></svg>;}
-function TilePolice({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}><ellipse cx="23" cy="42" rx="15" ry="2.5" fill="rgba(0,0,0,.13)"/><polygon points="28,5 37,3 37,33 28,36" fill="#1a3080"/><rect x="4" y="5" width="24" height="31" fill="#2244b8"/><rect x="4" y="5" width="24" height="3" fill="#3366d8"/>{[[5,10],[16,10],[5,20],[16,20]].map(([x,y])=><rect key={`${x}${y}`} x={x} y={y} width="9" height="7" fill="#88ccff" opacity=".7" rx="1"/>)}<rect x="13" y="29" width="9" height="7" fill="#0a1040" rx="1"/><rect x="6" y="3" width="3" height="3" fill="#1a38d0"/><rect x="10" y="3" width="3" height="3" fill="#d01820"/></svg>;}
-function TileCommunity({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}><ellipse cx="23" cy="42" rx="15" ry="2.5" fill="rgba(0,0,0,.13)"/><polygon points="28,5 37,3 37,33 28,36" fill="#157840"/><rect x="4" y="5" width="24" height="31" fill="#1eaa58"/><rect x="4" y="5" width="24" height="3" fill="#28cc68"/><rect x="21" y="2" width="2.5" height="7" fill="#0a6628"/><rect x="22" y="2" width="5" height="3" fill="#28c860"/>{[[5,10],[16,10],[5,20],[16,20]].map(([x,y])=><rect key={`${x}${y}`} x={x} y={y} width="9" height="7" fill="#80dba8" opacity=".5" rx="1"/>)}<rect x="13" y="29" width="9" height="7" fill="#083318" rx="1"/></svg>;}
-function TileCare({s}){return <svg width={s} height={s} viewBox={V} style={svSt(s)}><ellipse cx="23" cy="42" rx="15" ry="2.5" fill="rgba(0,0,0,.13)"/><polygon points="28,5 37,3 37,33 28,36" fill="#a81848"/><rect x="4" y="5" width="24" height="31" fill="#d01858"/><rect x="4" y="5" width="24" height="3" fill="#e02060"/><rect x="17" y="8" width="5" height="14" fill="white" opacity=".9"/><rect x="9" y="13" width="21" height="5" fill="white" opacity=".9"/>{[[5,10],[22,10],[5,22],[22,22]].map(([x,y])=><rect key={`${x}${y}`} x={x} y={y} width="6" height="5" fill="#e888aa" opacity=".45" rx="1"/>)}<rect x="13" y="29" width="9" height="7" fill="#540820" rx="1"/></svg>;}
-function BldgHouse({s}){return <svg width={s} height={s} viewBox={V} style={{...svSt(s),zIndex:2}}><ellipse cx="23" cy="42" rx="14" ry="2.5" fill="rgba(0,0,0,.15)"/><polygon points="27,20 36,16 36,35 27,38" fill="#c07028"/><rect x="6" y="20" width="21" height="18" fill="#e8be38"/><polygon points="5,20 20,8 28,20" fill="#c83824"/><polygon points="27,20 36,16 23,7 17,12" fill="#a02414"/><rect x="7" y="22" width="7" height="7" fill="#8cd4f8" opacity=".9" rx="1"/><rect x="7" y="22" width="7" height="2" fill="rgba(255,255,255,.5)"/><rect x="17" y="22" width="7" height="7" fill="#8cd4f8" opacity=".9" rx="1"/><rect x="17" y="22" width="7" height="2" fill="rgba(255,255,255,.5)"/><rect x="12" y="28" width="8" height="10" fill="#7a4a18" rx="1"/><circle cx="19" cy="33" r="1.2" fill="#e8a820"/></svg>;}
-function BldgCommercial({s}){return <svg width={s} height={s} viewBox={V} style={{...svSt(s),zIndex:2}}><ellipse cx="23" cy="43" rx="15" ry="2" fill="rgba(0,0,0,.12)"/><polygon points="28,4 37,2 37,35 28,38" fill="#7888aa"/><rect x="4" y="4" width="24" height="34" fill="#b8c4d8"/><rect x="4" y="4" width="24" height="3" fill="#7a8aa8"/>{[9,15,21].map(y=>[5,12,19].map(x=><rect key={`${x}${y}`} x={x} y={y} width="5" height="5" fill="#3a78d8" opacity=".6" rx=".8"/>))}<rect x="4" y="28" width="24" height="10" fill="#7a8aa8"/><rect x="11" y="29" width="10" height="9" fill="#1a2244" opacity=".8" rx="1"/></svg>;}
-function BldgHospital({s}){return <svg width={s} height={s} viewBox={V} style={{...svSt(s),zIndex:2}}><ellipse cx="23" cy="43" rx="15" ry="2" fill="rgba(0,0,0,.12)"/><polygon points="28,3 37,1 37,35 28,38" fill="#b0b8c8"/><rect x="4" y="3" width="24" height="35" fill="#e8eeea"/><rect x="16" y="6" width="6" height="16" fill="#d02858"/><rect x="7" y="11" width="22" height="6" fill="#d02858"/>{[[5,6],[22,6],[5,23],[22,23]].map(([x,y])=><rect key={`${x}${y}`} x={x} y={y} width="8" height="6" fill="#9ad4f8" opacity=".7" rx="1"/>)}<rect x="13" y="31" width="10" height="7" fill="#445566" rx="1"/></svg>;}
-function BldgAcademy({s}){return <svg width={s} height={s} viewBox={V} style={{...svSt(s),zIndex:2}}><ellipse cx="23" cy="43" rx="15" ry="2" fill="rgba(0,0,0,.12)"/><polygon points="28,5 37,3 37,35 28,38" fill="#c09028"/><rect x="4" y="5" width="24" height="33" fill="#e0b438"/><rect x="4" y="1" width="24" height="5" fill="#c09420"/><rect x="21" y="0" width="2" height="9" fill="#7a5c00"/><rect x="22" y="0" width="6" height="3" fill="#e8be00"/>{[10,16,22].map(y=>[5,12,19].map(x=><rect key={`${x}${y}`} x={x} y={y} width="5" height="5" fill="#9ad4f8" opacity=".6" rx=".8"/>))}<rect x="13" y="30" width="9" height="8" fill="#553300" rx="1"/></svg>;}
-
-function TileArt({type,size:s,land,building}){
+function TileArt({type,size:s,land,building,water,waterHoriz,night,grade}){
   const base=()=>{
     switch(type){
       case T.ROAD_H:    return <RoadH s={s}/>;
@@ -590,11 +892,136 @@ function TileArt({type,size:s,land,building}){
       default:return null;
     }
   };
+  const gradeGlow = grade==='A' ? '0 0 0 2.5px #f59e0b, 0 0 10px rgba(245,158,11,.5)'
+                  : grade==='B' ? '0 0 0 2px #6366f1'
+                  : 'none';
   return(
-    <div style={{position:'absolute',inset:0,overflow:'hidden'}}>
+    <div style={{
+      position:'absolute',inset:0,overflow:'hidden',
+      boxShadow: (building||[9,10,11].includes(type)) && grade ? gradeGlow : 'none',
+      borderRadius:'2px',
+    }}>
       {land&&<div style={{position:'absolute',inset:0,background:'rgba(255,200,50,.2)',border:'2px dashed #e8a820',zIndex:1,pointerEvents:'none'}}/>}
+      {/* 야간: 지형 어둠은 지도 전체 오버레이로 처리 (타일별 제거) */}
       {base()}{bldg()}
-      {land&&type===T.EMPTY&&!building&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:s*.3+'px',opacity:.4,zIndex:3,pointerEvents:'none'}}>📌</div>}
+      {water&&<WaterAnim ts={s} horiz={waterHoriz}/>}
+      {/* 야간: 건물 창문 불빛 */}
+      {night&&building&&<NightOverlay building={building} ts={s}/>}
+      {land&&(type===0||type===T.EMPTY)&&!building&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:Math.max(8,s*.3)+'px',opacity:.4,zIndex:3,pointerEvents:'none'}}>📌</div>}
+    </div>
+  );
+}
+
+// ═══ WATER ANIMATION ════════════════════════════════════════
+// 하천 타일 위에 올라가는 SVG 물결 오버레이
+function WaterAnim({ts, horiz}) {
+  const spd = horiz ? '2.4s' : '3s';
+  const w = ts * 2.2; // 2배 너비로 만들어서 루프
+  const h = ts;
+  const waves = [];
+  const rows = horiz ? 2 : 3;
+  for(let i = 0; i < rows; i++){
+    const yFrac = 0.22 + i * 0.28;
+    const amplitude = ts * 0.07;
+    const freq = horiz ? (ts * 0.18) : (ts * 0.22);
+    const points = [];
+    const steps = 20;
+    for(let j = 0; j <= steps; j++){
+      const px = (j / steps) * w;
+      const py = (horiz ? yFrac * h : yFrac * h) +
+                 Math.sin(j / steps * Math.PI * 4) * amplitude;
+      points.push(horiz ? `${px},${py}` : `${py},${px}`);
+    }
+    waves.push(
+      <polyline
+        key={i}
+        points={points.join(' ')}
+        fill="none"
+        stroke={`rgba(255,255,255,${0.22 + i * 0.06})`}
+        strokeWidth={horiz ? 1.4 : 1.2}
+        strokeLinecap="round"
+      />
+    );
+  }
+  return (
+    <div style={{
+      position:'absolute', inset:0,
+      overflow:'hidden', pointerEvents:'none', zIndex:3,
+    }}>
+      <svg
+        width={w} height={h}
+        style={{
+          position:'absolute',
+          top:0, left:0,
+          animation:`waveFlow ${spd} linear infinite`,
+          willChange:'transform',
+        }}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {waves}
+        {/* 빛 반짝임 */}
+        {[0.3, 0.6, 0.8].map((fx,i)=>(
+          <circle
+            key={i}
+            cx={fx * w}
+            cy={horiz ? h*0.45 : h*0.35}
+            r={ts*0.05}
+            fill="rgba(255,255,255,.6)"
+            style={{animation:`waveGlint ${1.5+i*0.7}s ease-in-out ${i*0.4}s infinite`}}
+          />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+// ═══ NIGHT OVERLAY ══════════════════════════════════════════
+// 야간 모드: 건물 타일 위에 올라가는 창문 불빛 오버레이
+function NightOverlay({building, ts}) {
+  if (!building || building === 0) return null; // B.NONE=0
+  const B_HOUSE=1, B_COMMERCIAL=2, B_HOSPITAL=3, B_ACADEMY=4;
+  // 건물 유형별 창문 불빛 위치·색상
+  const configs = {
+    [B_HOUSE]: {
+      windows: [{x:.22,y:.26},{x:.60,y:.26}],
+      color:'#ffe88a', glow:'rgba(255,230,80,.35)', size:.16,
+    },
+    [B_COMMERCIAL]: {
+      windows: [{x:.18,y:.20},{x:.38,y:.20},{x:.58,y:.20},
+                {x:.18,y:.36},{x:.38,y:.36},{x:.58,y:.36}],
+      color:'#c8e0ff', glow:'rgba(150,200,255,.3)', size:.12,
+    },
+    [B_HOSPITAL]: {
+      windows: [{x:.18,y:.63},{x:.45,y:.63},{x:.68,y:.63}],
+      color:'#e0f4ff', glow:'rgba(180,230,255,.4)', size:.14,
+    },
+    [B_ACADEMY]: {
+      windows: [{x:.18,y:.45},{x:.36,y:.45},{x:.54,y:.45},{x:.72,y:.45},
+                {x:.18,y:.63},{x:.36,y:.63},{x:.54,y:.63},{x:.72,y:.63}],
+      color:'#fff4c0', glow:'rgba(255,240,150,.3)', size:.11,
+    },
+  };
+  const cfg = configs[building];
+  if (!cfg) return null;
+  const sz = ts * cfg.size;
+  return (
+    <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:5,
+      animation:'nightFadeIn .6s ease'}}>
+      {/* 전체 어둠 오버레이 */}
+      <div style={{position:'absolute',inset:0,background:'rgba(10,15,40,.52)',borderRadius:'2px'}}/>
+      {/* 창문 불빛 */}
+      {cfg.windows.map((w,i)=>(
+        <div key={i} style={{
+          position:'absolute',
+          left: w.x * ts - sz/2,
+          top:  w.y * ts - sz/2,
+          width: sz, height: sz,
+          background: cfg.color,
+          borderRadius: '2px',
+          boxShadow: `0 0 ${sz*1.8}px ${sz}px ${cfg.glow}`,
+          animation: `nightPulse ${2.2+i*0.3}s ease-in-out ${i*0.18}s infinite`,
+        }}/>
+      ))}
     </div>
   );
 }
@@ -1067,19 +1494,19 @@ const MISSIONS = [
     id:1, title:'첫 번째 도로 건설', icon:'🛣',
     desc:'도로를 3칸 이상 건설하세요',
     reward:300, hint:'건설사 탭 → 도로 +5 구매 후 지도에 배치',
-    check:(g,bm,lm,pop,sat,month)=>g.flat().filter(t=>ROADS.includes(t)).length>=3,
+    check:(g,bm,lm,pop,sat,month)=>g.flat().filter(t=>ROADS.includes(t)).length > VILLAGE_INIT_ROADS+3,
   },
   {
     id:2, title:'첫 주택 건설', icon:'🏠',
     desc:'주택을 2채 건설하세요',
     reward:400, hint:'부동산 탭 → 토지 매입 후 주택 선택',
-    check:(g,bm,lm,pop,sat,month)=>Object.values(bm).filter(b=>b===B.HOUSE).length>=2,
+    check:(g,bm,lm,pop,sat,month)=>Object.values(bm).filter(b=>b===B.HOUSE).length >= VILLAGE_INIT_HOUSES+2,
   },
   {
     id:3, title:'상권 형성', icon:'🏢',
     desc:'상가를 1개 건설하세요',
     reward:400, hint:'주택 근처 상가는 수익이 +$20 더 나옵니다',
-    check:(g,bm,lm,pop,sat,month)=>Object.values(bm).filter(b=>b===B.COMMERCIAL).length>=1,
+    check:(g,bm,lm,pop,sat,month)=>Object.values(bm).filter(b=>b===B.COMMERCIAL).length >= VILLAGE_INIT_COMMERCIALS+1,
   },
   {
     id:4, title:'첫 월 결산', icon:'📅',
@@ -1160,7 +1587,7 @@ const CATS=[
 ];
 
 // ═══ SAVE / LOAD ════════════════════════════════════════════
-const SAVE_KEY = 'blockcity_v2';
+const SAVE_KEY = 'blockcity_v3';
 
 const loadSave = () => {
   try {
@@ -1183,9 +1610,9 @@ export default function BlockCity(){
   const [deposit,  setDeposit]  = useState(()=>initState('deposit',0));
   const [borrowed, setBorrowed] = useState(()=>initState('borrowed',0));
   const [loanToday,setLoanToday]= useState(()=>initState('loanToday',0));
-  const [grid,     setGrid]     = useState(()=>initState('grid',makeGrid()));
-  const [landMap,  setLandMap]  = useState(()=>initState('landMap',{}));
-  const [bldgMap,  setBldgMap]  = useState(()=>initState('bldgMap',{}));
+  const [grid,     setGrid]     = useState(()=>initState('grid',makeStartGrid()));
+  const [landMap,  setLandMap]  = useState(()=>initState('landMap',makeStartLand()));
+  const [bldgMap,  setBldgMap]  = useState(()=>initState('bldgMap',makeStartBldg()));
   const [inv,      setInv]      = useState(()=>initState('inv',{road:0,park:0}));
   const [tool,     setTool]     = useState(null);
   const [roadRot,  setRoadRot]  = useState('H');
@@ -1203,21 +1630,30 @@ export default function BlockCity(){
   const [offset,   setOffset]   = useState({x:0,y:0});
   const [bridgeRot,setBridgeRot]= useState('H');
   const [bgmOn,    setBgmOn]    = useState(false); // BGM 기본 꺼짐
+  const [nightMode, setNightMode] = useState(false); // 야간 모드
   const [bgmVol, setBgmVolS]= useState(0.04);  // BGM 볼륨
   const [month,     setMonth]     = useState(()=>initState('month',1));
   const [monthIncome,setMonthIncome] = useState(()=>initState('monthIncome',0));  // 지난달 총수입
   const [bldgBonus, setBldgBonus] = useState({});     // key→배수(첫달 퀴즈보너스)
   const [incomeLog, setIncomeLog] = useState(null);   // 월결산 상세
   const [showIncome,setShowIncome]= useState(false);
-  const [population, setPopulation] = useState(()=>initState('population',0));   // 👥 인구
+  const [population, setPopulation] = useState(()=>initState('population',VILLAGE_INIT_POP));   // 👥 인구 (마을 초기값)
   const [satisfaction,setSatisfaction] = useState(()=>initState('satisfaction',100)); // 😊 만족도 0~100
   const [popChange,  setPopChange]  = useState(()=>initState('popChange',0));   // 이번 달 인구 변화
   const [missionIdx, setMissionIdx] = useState(()=>initState('missionIdx',0));   // 현재 미션 인덱스
   const [showMissionComplete,setShowMissionComplete]=useState(null); // 완료된 미션 obj
-  const [bldgGrade,  setBldgGrade]  = useState(()=>initState('bldgGrade',{}));  // key→{grade,mul,satMul}
+  const [bldgGrade,  setBldgGrade]  = useState(()=>initState('bldgGrade',(()=>{
+    // 마을 초기 건물: B등급으로 시작 (플레이어가 퀴즈로 업그레이드 가능)
+    const m = {};
+    STARTER_VILLAGES.bldgItems.forEach(([k])=>{
+      m[k] = {grade:'B', mul:1.2, satMul:1.1};
+    });
+    return m;
+  })()));  // key→{grade,mul,satMul}
   const [monthBonus, setMonthBonus] = useState(()=>initState('monthBonus',1.0)); // 이달 전체수입 배수
   const [pendingMonthQuiz,setPendingMonthQuiz]=useState(false); // 월결산 퀴즈 대기
   const [notifications, setNotifications] = useState([]);
+  const [selectedTile,  setSelectedTile]  = useState(null); // 클릭된 타일 key
   const [recentTile,   setRecentTile]   = useState(null);
   const [cityLevel,    setCityLevel]    = useState(()=>initState('cityLevel',1));  // 1~5
   const [showLevelUp,  setShowLevelUp]  = useState(null); // 레벨업 모달용 level obj // 최근 배치된 타일 key (애니메이션용)
@@ -1826,6 +2262,10 @@ export default function BlockCity(){
       @keyframes tileShimmer{0%{opacity:.7}50%{opacity:1}100%{opacity:0;transform:scale(1.6)}}
       @keyframes correctFlash{0%{background:rgba(34,197,94,.25)}100%{background:transparent}}
       @keyframes wrongShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+      @keyframes waveFlow{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+      @keyframes waveGlint{0%,100%{opacity:0}50%{opacity:.7}}
+      @keyframes nightPulse{0%,100%{opacity:.75}50%{opacity:1}}
+      @keyframes nightFadeIn{from{opacity:0}to{opacity:1}}
     `;
     document.head.appendChild(anim);
     document.head.appendChild(el);
@@ -1931,7 +2371,6 @@ export default function BlockCity(){
         const gDef = GRADE_DEF[grade];
         if(grade!=='C') flash(`${gDef.icon} ${correct}/${total} 정답! ${grade}등급 획득 — ${gDef.desc} + $${cashBonus} 보너스`);
         else flash(`C등급 — 기본 수익. 퀴즈를 잘 풀면 수익이 올라갑니다 (+$${cashBonus})`);
-        // 건물 배치 애니메이션 트리거
         setRecentTile(cellKey);
         setTimeout(()=>setRecentTile(null), 800);
       } else {
@@ -1945,12 +2384,67 @@ export default function BlockCity(){
     setQuiz({key, questions:qs, cellKey, isMonthQuiz:false});
   };
 
+  // ── 건물 배치 퀴즈: 확률적 발생 ───────────────────────────
+  // 월결산·은행 퀴즈는 항상 발생, 건물/시설 배치만 확률 적용
+  const calcQuizProb = (key) => {
+    const pool = QB[key] || [];
+    if(!pool.length) return 0;
+    const log = wordLogR.current;
+    // 약점 단어 (틀린 > 맞힌)
+    const weak = pool.filter(q => {
+      const w = getWordFromQ(q[0]);
+      return w && log[w] && log[w].w > log[w].c;
+    }).length;
+    // 미학습 단어
+    const untried = pool.filter(q => {
+      const w = getWordFromQ(q[0]);
+      return w && !log[w];
+    }).length;
+    if (weak > 0)                      return 0.80; // 약점 단어 있으면 80%
+    if (untried > pool.length * 0.4)   return 0.55; // 미학습 많으면 55%
+    return 0.28;                                     // 기본 28%
+  };
+
+  // 퀴즈 없이 C등급으로 즉시 처리
+  const skipQuizPlace = (key, cellKey, pendingFn) => {
+    if(cellKey){
+      setBldgGrade(prev=>({...prev,[cellKey]:{grade:'C',mul:1.0,satMul:1.0}}));
+      setRecentTile(cellKey);
+      setTimeout(()=>setRecentTile(null), 600);
+    }
+    SFX.build();
+    pendingFn();
+  };
+
+  // 확률 판정 후 퀴즈 또는 즉시 처리
+  const maybeQuiz = (key, cellKey, pendingFn) => {
+    const prob = calcQuizProb(key);
+    if(Math.random() < prob){
+      // 퀴즈 발생 — 살짝 안내
+      flash(`📝 퀴즈 타임! (${Math.round(prob*100)}% 확률)`);
+      triggerQuiz(key, cellKey, pendingFn);
+    } else {
+      // 퀴즈 없이 즉시 배치
+      skipQuizPlace(key, cellKey, pendingFn);
+    }
+  };
+
   const handleCell=(r,c)=>{
     const tool=toolR.current, grid=gridR.current, inv=invR.current;
     const balance=balR.current, landMap=landR.current, bldgMap=bldgR.current;
     const roadRot=rotR.current, lastKey=lkR.current, bridgeRot=brotR.current;
-    if(!tool)return;
     const key=`${r},${c}`;
+    // 도구 없을 때: 건물/시설 클릭 시 정보 표시, 다른 곳 클릭 시 해제
+    if(!tool){
+      const hasBldg = bldgMap[key];
+      const hasPub  = [T.POLICE,T.COMMUNITY,T.CARE].includes(grid[r][c]);
+      if(hasBldg||hasPub){
+        setSelectedTile(prev => prev===key ? null : key);
+      } else {
+        setSelectedTile(null);
+      }
+      return;
+    }
     const cur=grid[r][c];
     const ter=TERRAIN[r]?.[c]||0;
     const isWater=ter===1;
@@ -2051,7 +2545,7 @@ export default function BlockCity(){
       if(bldgMap[key]){flash('⚠ 이미 건물이 있습니다');return;}
       const bCost = BUILD_COST[tool] ?? 150;
       if(balance<bCost){flash(`⚠ $${bCost} 필요`);return;}
-      triggerQuiz(tool, key, ()=>{
+      maybeQuiz(tool, key, ()=>{
         setBldgMap(m=>({...m,[key]:BMAP[tool]}));
         setBalance(b=>b-bCost);
         flash(`🏗 ${QM[tool]?.title} 건설 완료 -$${bCost}`);
@@ -2065,7 +2559,7 @@ export default function BlockCity(){
       if(!adjRoad(grid,r,c)){flash('⚠ 도로에 인접해야 합니다');return;}
       const pCost = BUILD_COST[tool] ?? 200;
       if(balance<pCost){flash(`⚠ $${pCost} 필요`);return;}
-      triggerQuiz(tool, key, ()=>{
+      maybeQuiz(tool, key, ()=>{
         setGrid(prev=>{const ng=prev.map(row_=>[...row_]);ng[r][c]=TMAP[tool];return ng;});
         setBalance(b=>b-pCost);
         flash(`🏛 ${QM[tool]?.title} 설치 완료 -$${pCost}`);
@@ -2096,7 +2590,7 @@ export default function BlockCity(){
     }
   };
 
-  const onPD=e=>{dragging.current=true;moved.current=false;dragStart.current={mx:e.clientX,my:e.clientY,ox:offR.current.x,oy:offR.current.y};};
+  const onPD=e=>{dragging.current=true;moved.current=false;dragStart.current={mx:e.clientX,my:e.clientY,ox:offR.current.x,oy:offR.current.y};if(toolR.current)setSelectedTile(null);};
   const onPM=e=>{
     if(!dragging.current)return;
     const dx=e.clientX-dragStart.current.mx,dy=e.clientY-dragStart.current.my;
@@ -2142,15 +2636,15 @@ export default function BlockCity(){
     try { localStorage.removeItem(SAVE_KEY); } catch(e){}
     setBalance(0); setLoan(0); setDeposit(0);
     setBorrowed(0); setLoanToday(0);
-    setGrid(makeGrid());
-    setLandMap({}); setBldgMap({}); setBldgGrade({});
+    setGrid(makeStartGrid());
+    setLandMap(makeStartLand()); setBldgMap(makeStartBldg()); setBldgGrade({});
     setInv({road:0,park:0});
     setScore({total:0,correct:0});
     setWordLog({});
     setCityLevel(1);
     setShowLevelUp(null);
     setMonth(1); setMonthIncome(0);
-    setPopulation(0); setSatisfaction(100); setPopChange(0);
+    setPopulation(VILLAGE_INIT_POP); setSatisfaction(100); setPopChange(0);
     setMissionIdx(0);
     setMonthBonus(1.0);
     setNotifications([]);
@@ -2201,9 +2695,9 @@ export default function BlockCity(){
   const missionProgress = (() => {
     if (!currentMission) return { cur:0, max:1 };
     const id = currentMission.id;
-    if (id===1) { const v=grid.flat().filter(t=>ROADS.includes(t)).length; return {cur:Math.min(v,3),max:3}; }
-    if (id===2) { const v=Object.values(bldgMap).filter(b=>b===B.HOUSE).length; return {cur:Math.min(v,2),max:2}; }
-    if (id===3) { const v=Object.values(bldgMap).filter(b=>b===B.COMMERCIAL).length; return {cur:Math.min(v,1),max:1}; }
+    if (id===1) { const v=Math.max(0,grid.flat().filter(t=>ROADS.includes(t)).length-VILLAGE_INIT_ROADS); return {cur:Math.min(v,3),max:3}; }
+    if (id===2) { const v=Math.max(0,Object.values(bldgMap).filter(b=>b===B.HOUSE).length-VILLAGE_INIT_HOUSES); return {cur:Math.min(v,2),max:2}; }
+    if (id===3) { const v=Math.max(0,Object.values(bldgMap).filter(b=>b===B.COMMERCIAL).length-VILLAGE_INIT_COMMERCIALS); return {cur:Math.min(v,1),max:1}; }
     if (id===4) { return {cur:Math.min(month-1,1),max:1}; }
     if (id===5) { return {cur:Math.min(population,20),max:20}; }
     if (id===6) { const v=grid.flat().some(t=>t===T.POLICE)?1:0; return {cur:v,max:1}; }
@@ -2347,16 +2841,88 @@ export default function BlockCity(){
               <canvas ref={canvasRef} width={mapW} height={mapH} style={{position:'absolute',top:0,left:0,pointerEvents:'none'}}/>
               {grid.map((row,ri)=>row.map((cell,ci)=>{
                 const key=`${ri},${ci}`;
+                const bType = bldgMap[key];
+                const pType = [T.POLICE,T.COMMUNITY,T.CARE].includes(cell) ? cell : null;
+                const binfo = bType ? {[B.HOUSE]:{name:'주택',bg:'rgba(180,40,30,.92)',icon:'🏠'},
+                  [B.COMMERCIAL]:{name:'상가',bg:'rgba(60,90,160,.92)',icon:'🏢'},
+                  [B.HOSPITAL]:{name:'병원',bg:'rgba(80,120,160,.92)',icon:'🏥'},
+                  [B.ACADEMY]:{name:'학원',bg:'rgba(160,120,10,.92)',icon:'🎓'}}[bType] : null;
+                const pinfo = pType ? {[T.POLICE]:{name:'경찰서',bg:'rgba(20,40,180,.92)',icon:'🚔'},
+                  [T.COMMUNITY]:{name:'주민센터',bg:'rgba(10,90,40,.92)',icon:'🏛'},
+                  [T.CARE]:{name:'돌봄센터',bg:'rgba(150,20,60,.92)',icon:'💙'}}[pType] : null;
+                const info = binfo || pinfo;
+                const isSelected = selectedTile===key;
                 return(
-                  <div key={key} style={{
-                    position:'absolute',left:ci*ts,top:ri*ts,width:ts,height:ts,
-                    pointerEvents:'none',overflow:'hidden',
-                    animation:recentTile===key?'tilePopIn 0.55s cubic-bezier(.34,1.56,.64,1) forwards':'none',
-                  }}>
-                    <TileArt type={cell} size={ts} land={!!landMap[key]} building={bldgMap[key]||B.NONE}/>
+                  <div key={key}
+                    onClick={info&&!tool ? (e)=>{e.stopPropagation();setSelectedTile(p=>p===key?null:key);} : undefined}
+                    style={{
+                      position:'absolute',left:ci*ts,top:ri*ts,width:ts,height:ts,
+                      pointerEvents: info&&!tool ? 'all' : 'none',
+                      overflow:'visible',
+                      cursor: info&&!tool ? 'pointer' : 'default',
+                      animation:recentTile===key?'tilePopIn 0.55s cubic-bezier(.34,1.56,.64,1) forwards':'none',
+                    }}>
+                    <TileArt type={cell} size={ts} land={!!landMap[key]} building={bldgMap[key]||B.NONE}
+                      water={TERRAIN[ri][ci]===1}
+                      waterHoriz={ci>0&&TERRAIN[ri][ci-1]===1||ci<MAP_W-1&&TERRAIN[ri][ci+1]===1}
+                      night={nightMode}
+                      grade={bldgGrade[key]?.grade||null}
+                    />
+                    {/* 등급 뱃지 (A/B만) */}
                     {(bldgMap[key]||[T.POLICE,T.COMMUNITY,T.CARE].includes(cell))&&bldgGrade[key]&&bldgGrade[key].grade!=='C'&&(
-                      <div style={{position:'absolute',top:1,right:1,background:bldgGrade[key].grade==='A'?'#f59e0b':'#6366f1',borderRadius:'50%',width:ts*.28,height:ts*.28,display:'flex',alignItems:'center',justifyContent:'center',fontSize:ts*.18,zIndex:10,boxShadow:'0 1px 4px rgba(0,0,0,.3)',pointerEvents:'none'}}>
+                      <div style={{position:'absolute',top:1,right:1,
+                        background:bldgGrade[key].grade==='A'?'#f59e0b':'#6366f1',
+                        borderRadius:'50%',width:ts*.3,height:ts*.3,
+                        display:'flex',alignItems:'center',justifyContent:'center',
+                        fontSize:ts*.19,zIndex:12,
+                        boxShadow:bldgGrade[key].grade==='A'?'0 0 8px rgba(245,158,11,.8)':'0 1px 4px rgba(0,0,0,.3)',
+                        pointerEvents:'none'}}>
                         {bldgGrade[key].grade==='A'?'🌟':'⭐'}
+                      </div>
+                    )}
+                    {/* 인구 밀도: 주택 주변에 미니 인물 아이콘 */}
+                    {bldgMap[key]===B.HOUSE&&population>0&&(()=>{
+                      const density = Math.min(3, Math.floor(population/15)+1);
+                      const icons = ['👤','👥','👨‍👩‍👧‍👦'];
+                      return (
+                        <div style={{position:'absolute',bottom:1,left:'50%',transform:'translateX(-50%)',
+                          fontSize:ts*.18,zIndex:11,pointerEvents:'none',
+                          filter:nightMode?'brightness(1.4)':'none',
+                          opacity:nightMode?1:.75}}>
+                          {icons[density-1]}
+                        </div>
+                      );
+                    })()}
+                    {/* 건물 정보 라벨 (선택 시) */}
+                    {isSelected && info && (
+                      <div style={{
+                        position:'absolute',
+                        bottom: ts + 4,
+                        left:'50%', transform:'translateX(-50%)',
+                        background: info.bg,
+                        color:'white',
+                        borderRadius:'8px',
+                        padding:'4px 8px',
+                        fontSize: Math.max(10, ts*.38)+'px',
+                        fontWeight:800,
+                        whiteSpace:'nowrap',
+                        zIndex:200,
+                        boxShadow:'0 2px 10px rgba(0,0,0,.4)',
+                        display:'flex', alignItems:'center', gap:'4px',
+                        backdropFilter:'blur(4px)',
+                        border:'1.5px solid rgba(255,255,255,.3)',
+                        pointerEvents:'none',
+                        animation:'tilePopIn .2s cubic-bezier(.34,1.56,.64,1)',
+                      }}>
+                        <span style={{fontSize: Math.max(11,ts*.4)+'px'}}>{info.icon}</span>
+                        <span>{info.name}</span>
+                        {bldgGrade[key]&&<span style={{
+                          fontSize: Math.max(9,ts*.3)+'px',
+                          opacity:.85,
+                          background:'rgba(255,255,255,.2)',
+                          borderRadius:'4px',
+                          padding:'0 4px',
+                        }}>{bldgGrade[key].grade}등급</span>}
                       </div>
                     )}
                   </div>
@@ -2364,6 +2930,34 @@ export default function BlockCity(){
               }))}
             </div>
           </div>
+
+          {/* 야간 모드: 하늘 오버레이 */}
+          {nightMode&&(
+            <div style={{position:'absolute',inset:0,background:'rgba(5,10,35,.38)',
+              pointerEvents:'none',zIndex:8,transition:'opacity .8s ease'}}>
+              {/* 별 */}
+              {[[8,6],[22,4],[38,8],[14,14],[31,11],[5,20],[42,18],[25,22],
+                [11,28],[37,26],[18,32],[44,35],[6,38],[29,36]].map(([x,y],i)=>(
+                <div key={i} style={{
+                  position:'absolute',left:`${x}%`,top:`${y}%`,
+                  width:'2px',height:'2px',borderRadius:'50%',
+                  background:'white',
+                  animation:`nightPulse ${1.5+i*.2}s ease-in-out ${i*.13}s infinite`,
+                  opacity:.8,
+                }}/>
+              ))}
+              {/* 달 */}
+              <div style={{position:'absolute',top:'4%',right:'6%',
+                width:'28px',height:'28px',borderRadius:'50%',
+                background:'radial-gradient(circle at 35% 35%, #fffde0, #f8e060)',
+                boxShadow:'0 0 20px rgba(255,240,100,.6)',
+                opacity:.9}}>
+                <div style={{position:'absolute',top:'20%',left:'50%',
+                  width:'10px',height:'10px',borderRadius:'50%',
+                  background:'rgba(200,180,20,.25)'}}/>
+              </div>
+            </div>
+          )}
 
           {/* 지도 위 메시지 */}
           {msg&&(
@@ -2548,6 +3142,14 @@ export default function BlockCity(){
         }}>
           <span>⏭</span><span>다음 달</span>
         </button>
+        {/* 야간 모드 */}
+        <button onClick={()=>setNightMode(n=>!n)} style={{
+          background:nightMode?'rgba(30,40,120,.8)':'rgba(255,255,255,.07)',
+          border:`1px solid ${nightMode?'rgba(120,140,255,.5)':'rgba(255,255,255,.12)'}`,
+          borderRadius:'10px',padding:'7px 10px',fontSize:'14px',cursor:'pointer',
+          color:nightMode?'#a8b8ff':'rgba(255,255,255,.6)',flexShrink:0,
+          transition:'all .3s',
+        }} title={nightMode?'낮으로 전환':'밤으로 전환'}>{nightMode?'🌙':'☀️'}</button>
         {/* BGM */}
         <button onClick={toggleBGM} style={{
           background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',
