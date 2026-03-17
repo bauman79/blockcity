@@ -2054,7 +2054,8 @@ export default function BlockCity(){
 
   const calcCityStats = (g, bm) => {
     const houses = Object.values(bm).filter(b => b === B.HOUSE).length;
-    const pop = houses * 5;
+    // capacity: 주택이 수용할 수 있는 최대 인구 (주택 1채 = 5명)
+    const capacity = houses * 5;
 
     let pubScore = 0;
     for (let r=0; r<MAP_H; r++) for (let c=0; c<MAP_W; c++) {
@@ -2081,14 +2082,16 @@ export default function BlockCity(){
       }
     });
 
-    const needed = Math.floor(pop / 10);
+    // 만족도: 현재 인구(popR) 기준으로 필요 시설 계산
+    const curPop = popR.current;
+    const needed = Math.floor(curPop / 10);
     const have   = pubScore + connBonus;
     const deficit = Math.max(0, needed - have);
 
     let sat = 100 + Math.min(20, have - needed) * 2 - deficit * 3;
     sat = Math.max(10, Math.min(100, sat));
 
-    return { pop, sat: Math.round(sat), pubScore, connBonus, deficit };
+    return { capacity, sat: Math.round(sat), pubScore, connBonus, deficit };
   };
 
   const doAdvanceMonth = (extraMbonus = 1.0) => {
@@ -2102,19 +2105,42 @@ export default function BlockCity(){
     const mbonus  = mbonusR.current * extraMbonus;
 
     const { total, raw, items } = calcIncome(g, bm, grd, mbonus);
-    const { pop, sat, deficit } = calcCityStats(g, bm);
+    const { capacity, sat, deficit } = calcCityStats(g, bm);
 
-    let newPop = pop;
-    let popDelta = pop - prevPop;   // 건물 변화에 의한 기본 증감
-    if (sat < 50 && pop > 0) {
-      const leave = Math.min(pop, 5);
-      newPop = Math.max(0, pop - leave);
-      popDelta -= leave;
-    } else if (sat >= 80 && pop > 0) {
-      const bonus = Math.floor(pop * 0.05);
-      newPop = pop + bonus;
-      popDelta += bonus;
+    // ── 새 인구 시스템 ──────────────────────────────────────
+    // 인구는 capacity(주택 수용 한도)를 향해 만족도에 따라 유동적으로 변화
+    let newPop = prevPop;
+
+    if (capacity === 0) {
+      // 주택이 없으면 인구 0
+      newPop = 0;
+    } else if (sat >= 80) {
+      // 만족도 높음: 빠르게 유입 (capacity까지 gap의 20% + 자연증가 3%)
+      const gap = capacity - prevPop;
+      const inflow = Math.ceil(gap * 0.20);
+      const natural = Math.ceil(prevPop * 0.03);
+      newPop = Math.min(capacity, prevPop + inflow + natural);
+    } else if (sat >= 60) {
+      // 만족도 보통: 천천히 유입 (gap의 10%)
+      const gap = capacity - prevPop;
+      const inflow = Math.ceil(gap * 0.10);
+      newPop = Math.min(capacity, prevPop + inflow);
+    } else if (sat >= 40) {
+      // 만족도 낮음: 현상 유지 (주택 수용 한도 초과분만 조정)
+      newPop = Math.min(capacity, prevPop);
+    } else if (sat >= 20) {
+      // 만족도 매우 낮음: 이탈 (현재 인구의 8%)
+      const leave = Math.ceil(prevPop * 0.08);
+      newPop = Math.max(0, prevPop - leave);
+    } else {
+      // 만족도 최악: 급격한 이탈 (현재 인구의 15%)
+      const leave = Math.ceil(prevPop * 0.15);
+      newPop = Math.max(0, prevPop - leave);
     }
+
+    // 수용 한도 초과 불가
+    newPop = Math.min(newPop, capacity);
+    const popDelta = newPop - prevPop;
 
     const interest = Math.round(ln * 0.02);
     const net = total - interest;
@@ -2129,7 +2155,7 @@ export default function BlockCity(){
     setPopChange(popDelta);
     setIncomeLog({
       month: mn, total, raw, mbonus, items, interest, net,
-      pop: newPop, popDelta, sat, prevSat, deficit
+      pop: newPop, capacity, popDelta, sat, prevSat, deficit
     });
     // 도시 등급 체크
     const acc = score.total > 0 ? Math.round(score.correct / score.total * 100) : 0;
@@ -2720,7 +2746,7 @@ export default function BlockCity(){
     {l:`${month}월`,   v:'📅',                          c:'#64748b', bg:'#f1f5f9'},
     {l:'잔액',         v:`$${balance}`,                  c:'#6366f1', bg:'#eef2ff'},
     {l:'월수입',       v:`+$${monthIncome}`,              c:'#16a34a', bg:'#f0fdf4'},
-    {l:'👥 인구',      v:`${population}명${popChange!==0?(popChange>0?` ▲${popChange}`:` ▼${Math.abs(popChange)}`):''}`, c:'#0ea5e9', bg:'#f0f9ff'},
+    {l:'👥 인구',      v:`${population}/${cityStats.capacity}명${popChange!==0?(popChange>0?` ▲${popChange}`:` ▼${Math.abs(popChange)}`):''}`, c:'#0ea5e9', bg:'#f0f9ff'},
     {l:`${satIcon} 만족도`, v:`${cityStats.sat}%`,       c:satColor,  bg:satBg},
     {l:'순자산',       v:`${net>=0?'+':''}$${net}`,       c:net>=0?'#059669':'#dc2626', bg:net>=0?'#ecfdf5':'#fef2f2'},
     ...(deposit>0?[{l:'예금',v:`$${deposit}`,c:'#d97706',bg:'#fffbeb'}]:[]),
@@ -3198,7 +3224,7 @@ export default function BlockCity(){
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'10px'}}>
                   <div style={{background:'#f0f9ff',borderRadius:'10px',padding:'8px 10px',textAlign:'center'}}>
                     <div style={{fontSize:'9px',color:'#0ea5e9',fontWeight:700}}>👥 인구</div>
-                    <div style={{fontSize:'18px',color:'#0ea5e9',fontWeight:900}}>{incomeLog.pop}<span style={{fontSize:'11px'}}>명</span></div>
+                    <div style={{fontSize:'18px',color:'#0ea5e9',fontWeight:900}}>{incomeLog.pop}<span style={{fontSize:'11px',opacity:.7}}>/{incomeLog.capacity||'?'}</span><span style={{fontSize:'11px'}}>명</span></div>
                     {incomeLog.popDelta!==0&&<div style={{fontSize:'10px',color:incomeLog.popDelta>0?'#16a34a':'#dc2626',fontWeight:700}}>{incomeLog.popDelta>0?`▲ +${incomeLog.popDelta}`:`▼ ${incomeLog.popDelta}`}명</div>}
                   </div>
                   <div style={{background:incomeLog.sat>=70?'#f0fdf4':incomeLog.sat>=50?'#fffbeb':'#fef2f2',borderRadius:'10px',padding:'8px 10px',textAlign:'center'}}>
