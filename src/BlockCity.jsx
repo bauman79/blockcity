@@ -1628,6 +1628,7 @@ export default function BlockCity(){
   const [repayAmt, setRepayAmt] = useState(500);
   const [depAmt,   setDepAmt]   = useState(100);
   const [offset,   setOffset]   = useState({x:0,y:0});
+  const [zoom,     setZoom]     = useState(1.0); // 확대/축소 배율 (0.5~3.0)
   const [bridgeRot,setBridgeRot]= useState('H');
   const [bgmOn,    setBgmOn]    = useState(false); // BGM 기본 꺼짐
   const [nightMode, setNightMode] = useState(false); // 야간 모드
@@ -1674,6 +1675,7 @@ export default function BlockCity(){
   const rotR     = useRef('H');
   const lkR      = useRef(null);
   const offR     = useRef({x:0,y:0});
+  const zoomR    = useRef(1.0);
   const tsR      = useRef(ts);
   const brotR    = useRef('H');
   const monthR   = useRef(1);
@@ -1696,6 +1698,7 @@ export default function BlockCity(){
   rotR.current   = roadRot;
   lkR.current    = lastKey;
   offR.current   = offset;
+  zoomR.current  = zoom;
   tsR.current    = ts;
   brotR.current  = bridgeRot;
   popR.current   = population;
@@ -2377,11 +2380,26 @@ export default function BlockCity(){
   // eslint-disable-next-line
   },[balance, loan]);
 
-  const clamp=(ox,oy)=>{
+  const clamp=(ox,oy,z=null)=>{
     const vr=viewRef.current?.getBoundingClientRect();
     const vw=vr?.width||300,vh=vr?.height||300;
-    const mw=MAP_W*tsR.current, mh=MAP_H*tsR.current;
+    const z2 = z ?? zoomR.current;
+    const mw=MAP_W*tsR.current*z2, mh=MAP_H*tsR.current*z2;
     return{x:Math.max(Math.min(0,vw-mw),Math.min(0,ox)),y:Math.max(Math.min(0,vh-mh),Math.min(0,oy))};
+  };
+
+  // 줌 변경: 화면 중심 기준으로 offset 보정
+  const applyZoom = (newZoom, originX, originY) => {
+    const z0 = zoomR.current;
+    const z1 = Math.max(0.4, Math.min(4.0, newZoom));
+    // 현재 뷰포트 내 origin 좌표가 줌 후에도 같은 위치에 오도록 offset 보정
+    const ox0 = offR.current.x;
+    const oy0 = offR.current.y;
+    const ox1 = originX - (originX - ox0) * (z1 / z0);
+    const oy1 = originY - (originY - oy0) * (z1 / z0);
+    setZoom(z1);
+    zoomR.current = z1;
+    setOffset(clamp(ox1, oy1, z1));
   };
 
   const triggerQuiz=(key, cellKey, pendingFn)=>{
@@ -2616,13 +2634,65 @@ export default function BlockCity(){
     }
   };
 
-  const onPD=e=>{dragging.current=true;moved.current=false;dragStart.current={mx:e.clientX,my:e.clientY,ox:offR.current.x,oy:offR.current.y};if(toolR.current)setSelectedTile(null);};
+  // 핀치줌 상태
+  const pinchRef = useRef(null); // {d0, z0, cx, cy}
+
+  const onPD=e=>{
+    // 멀티터치면 핀치 시작 기록 (포인터 캡처는 사용 안 함)
+    dragging.current=true;
+    moved.current=false;
+    dragStart.current={mx:e.clientX,my:e.clientY,ox:offR.current.x,oy:offR.current.y};
+    if(toolR.current)setSelectedTile(null);
+  };
   const onPM=e=>{
     if(!dragging.current)return;
     const dx=e.clientX-dragStart.current.mx,dy=e.clientY-dragStart.current.my;
     if(Math.hypot(dx,dy)>5)moved.current=true;
     if(moved.current)setOffset(clamp(dragStart.current.ox+dx,dragStart.current.oy+dy));
   };
+  // 터치 핀치 줌
+  const onTouchStart = (e) => {
+    if(e.touches.length===2){
+      const t1=e.touches[0], t2=e.touches[1];
+      const d = Math.hypot(t1.clientX-t2.clientX, t1.clientY-t2.clientY);
+      const cx = (t1.clientX+t2.clientX)/2;
+      const cy = (t1.clientY+t2.clientY)/2;
+      const vr = viewRef.current?.getBoundingClientRect();
+      pinchRef.current = {
+        d0: d, z0: zoomR.current,
+        // 뷰포트 기준 중심점
+        ox: cx - (vr?.left||0),
+        oy: cy - (vr?.top||0),
+      };
+      dragging.current = false; // 핀치 중 드래그 비활성
+    }
+  };
+
+  const onTouchMove = (e) => {
+    if(e.touches.length===2 && pinchRef.current){
+      e.preventDefault(); // 브라우저 기본 확대 방지
+      const t1=e.touches[0], t2=e.touches[1];
+      const d = Math.hypot(t1.clientX-t2.clientX, t1.clientY-t2.clientY);
+      const scale = d / pinchRef.current.d0;
+      const newZ = pinchRef.current.z0 * scale;
+      applyZoom(newZ, pinchRef.current.ox, pinchRef.current.oy);
+    }
+  };
+
+  const onTouchEnd = (e) => {
+    if(e.touches.length < 2) pinchRef.current = null;
+  };
+
+  // 마우스 휠 줌 (PC)
+  const onWheel = (e) => {
+    e.preventDefault();
+    const vr = viewRef.current?.getBoundingClientRect();
+    const ox = e.clientX - (vr?.left||0);
+    const oy = e.clientY - (vr?.top||0);
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    applyZoom(zoomR.current * delta, ox, oy);
+  };
+
   const onPU=e=>{
     if(!dragging.current)return;
     dragging.current=false;
@@ -2630,8 +2700,10 @@ export default function BlockCity(){
       const vr=viewRef.current?.getBoundingClientRect();
       if(!vr)return;
       const ts=tsR.current;
-      const lx=e.clientX-vr.left-offR.current.x;
-      const ly=e.clientY-vr.top-offR.current.y;
+      const z=zoomR.current;
+      // zoom 적용: 실제 타일 좌표 = 화면 좌표 / zoom
+      const lx=(e.clientX-vr.left-offR.current.x)/z;
+      const ly=(e.clientY-vr.top-offR.current.y)/z;
       const ci=Math.floor(lx/ts),ri=Math.floor(ly/ts);
       if(ri>=0&&ri<MAP_H&&ci>=0&&ci<MAP_W)handleCell(ri,ci);
     }
@@ -2675,6 +2747,7 @@ export default function BlockCity(){
     setMonthBonus(1.0);
     setNotifications([]);
     setOffset({x:0,y:0});
+    setZoom(1.0);
     setShowNewGame(false);
     setMsg('🏙 새 게임 시작! 은행에서 대출 후 시작하세요.');
     pushNotif('good','새 게임 시작!','도시를 처음부터 새로 건설합니다. 화이팅! 🏗','new_game');
@@ -2862,8 +2935,13 @@ export default function BlockCity(){
 
           {/* 지도 */}
           <div ref={viewRef} style={{position:'absolute',inset:0,cursor:tool?'crosshair':'grab',touchAction:'none',userSelect:'none'}}
-            onPointerDown={onPD} onPointerMove={onPM} onPointerUp={onPU} onPointerLeave={onPU}>
-            <div style={{position:'absolute',transform:`translate(${offset.x}px,${offset.y}px)`,width:mapW,height:mapH,willChange:'transform'}}>
+            onPointerDown={onPD} onPointerMove={onPM} onPointerUp={onPU} onPointerLeave={onPU}
+            onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+            onWheel={onWheel}>
+            <div style={{position:'absolute',
+              transform:`translate(${offset.x}px,${offset.y}px) scale(${zoom})`,
+              transformOrigin:'0 0',
+              width:mapW,height:mapH,willChange:'transform'}}>
               <canvas ref={canvasRef} width={mapW} height={mapH} style={{position:'absolute',top:0,left:0,pointerEvents:'none'}}/>
               {grid.map((row,ri)=>row.map((cell,ci)=>{
                 const key=`${ri},${ci}`;
@@ -2955,6 +3033,19 @@ export default function BlockCity(){
                 );
               }))}
             </div>
+          </div>
+
+          {/* 줌 레벨 표시 + 리셋 */}
+          <div style={{position:'absolute',bottom:8,right:8,display:'flex',gap:'4px',alignItems:'center',zIndex:60}}>
+            {Math.round(zoom*100)!==100&&(
+              <button onClick={()=>{setZoom(1.0);zoomR.current=1.0;setOffset(clamp(0,0,1.0));}}
+                style={{background:'rgba(20,24,45,.85)',color:'rgba(255,255,255,.8)',
+                  border:'1px solid rgba(255,255,255,.2)',borderRadius:'8px',
+                  padding:'3px 9px',fontSize:'11px',fontWeight:700,cursor:'pointer',
+                  backdropFilter:'blur(4px)'}}>
+                {Math.round(zoom*100)}% · 리셋
+              </button>
+            )}
           </div>
 
           {/* 야간 모드: 하늘 오버레이 */}
